@@ -1,0 +1,25 @@
+# Claude Code
+.claude/
+
+# Dependências
+node_modules/
+**/node_modules/
+
+# Variáveis de ambiente (NUNCA subir)
+.env
+.env.local
+.env.production
+**/.env
+
+# Build
+dist/
+build/
+**/dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
