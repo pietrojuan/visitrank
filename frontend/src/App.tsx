@@ -22,6 +22,8 @@ import CorretoresPage from './pages/CorretoresPage';
 import ClienteLoginPage from './pages/ClienteLoginPage';
 import ClienteImoveisPage from './pages/ClienteImoveisPage';
 import ClienteAvaliacaoPage from './pages/ClienteAvaliacaoPage';
+import TermosPage from './pages/TermosPage';
+import PrivacidadePage from './pages/PrivacidadePage';
 
 // Guarda: requer login
 const Guard = ({ children }: { children: React.ReactNode }) => {
@@ -48,8 +50,10 @@ const AppRoutes = () => {
   const { token, usuario } = useAuth();
   return (
     <Routes>
-      {/* Avaliação pública via QR */}
+      {/* Páginas públicas */}
       <Route path="/avaliar/:token" element={<AvaliacaoPage />} />
+      <Route path="/termos" element={<TermosPage />} />
+      <Route path="/privacidade" element={<PrivacidadePage />} />
 
       {/* Portal do cliente */}
       <Route path="/cliente/login" element={<ClienteLoginPage />} />

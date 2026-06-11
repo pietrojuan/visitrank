@@ -1,6 +1,6 @@
 import React, { useState, useEffect, FormEvent } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { clienteAuthApi, publicApi } from '../services/api';
 
 type Modo = 'login' | 'registro';
@@ -135,6 +135,12 @@ export default function LoginPage() {
               <p className="text-center text-slate-500 text-xs pt-1">
                 Funciona para clientes, corretores e admins.
               </p>
+              <p className="text-center text-slate-600 text-[11px] leading-relaxed">
+                Ao entrar, você concorda com os nossos{' '}
+                <Link to="/termos" className="text-brand-400 hover:underline">Termos de Uso</Link>
+                {' '}e{' '}
+                <Link to="/privacidade" className="text-brand-400 hover:underline">Política de Privacidade</Link>.
+              </p>
             </form>
           )}
 
@@ -189,6 +195,12 @@ export default function LoginPage() {
               </button>
               <p className="text-center text-slate-500 text-xs pt-1">
                 O cadastro é apenas para clientes.<br />Corretores e admins são criados pelo administrador.
+              </p>
+              <p className="text-center text-slate-600 text-[11px] leading-relaxed">
+                Ao criar sua conta, você concorda com os nossos{' '}
+                <Link to="/termos" className="text-brand-400 hover:underline">Termos de Uso</Link>
+                {' '}e{' '}
+                <Link to="/privacidade" className="text-brand-400 hover:underline">Política de Privacidade</Link>.
               </p>
             </form>
           )}
