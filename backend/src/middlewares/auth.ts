@@ -13,7 +13,14 @@ export const autenticar = (req: Request, res: Response, next: NextFunction): voi
 };
 
 export const apenasAdmin = (req: Request, res: Response, next: NextFunction): void => {
-  if (req.user?.perfil !== 'Administrador') { res.status(403).json({ erro: 'Acesso restrito a administradores' }); return; }
+  if (req.user?.perfil !== 'admin') { res.status(403).json({ erro: 'Acesso restrito a administradores' }); return; }
+  next();
+};
+
+export const apenasAdminOuModerador = (req: Request, res: Response, next: NextFunction): void => {
+  if (!['admin', 'moderador'].includes(req.user?.perfil || '')) {
+    res.status(403).json({ erro: 'Acesso restrito a administradores e moderadores' }); return;
+  }
   next();
 };
 

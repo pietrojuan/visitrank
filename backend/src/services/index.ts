@@ -167,16 +167,17 @@ export const clienteDetalhes = async (imobId: string, clienteId: string) => {
 };
 
 // VISITAS
-export const listarVisitas = async (imobId: string) => {
+export const listarVisitas = async (imobId: string, corretorId?: string) => {
   const r = await query(
     `SELECT v.*, i.titulo AS imovel_titulo, c.nome AS cliente_nome, u.nome AS corretor_nome,
             (EXISTS(SELECT 1 FROM avaliacao a WHERE a.visita_id=v.id)
              OR EXISTS(SELECT 1 FROM avaliacao_imovel ai WHERE ai.imovel_id=v.imovel_id AND ai.cliente_id=v.cliente_id)) AS avaliada
      FROM visita v JOIN imovel i ON i.id=v.imovel_id JOIN cliente c ON c.id=v.cliente_id JOIN usuario u ON u.id=v.corretor_id
      WHERE v.imobiliaria_id=$1
+       ${corretorId ? 'AND v.corretor_id=$2' : ''}
        AND NOT (v.status='cancelada' AND v.criado_em < NOW() - INTERVAL '7 days')
      ORDER BY v.data_visita DESC`,
-    [imobId]
+    corretorId ? [imobId, corretorId] : [imobId]
   );
   return r.rows;
 };
@@ -335,7 +336,7 @@ export const listarAvaliacoes = async (imobId: string) => {
     JOIN cliente c  ON c.id  = ai.cliente_id
     LEFT JOIN imovel_cliente ic ON ic.imovel_id = ai.imovel_id AND ic.cliente_id = ai.cliente_id
     LEFT JOIN usuario u ON u.id = ic.corretor_id
-    WHERE i.imobiliaria_id = $1
+    WHERE i.imobiliaria_id = $1 AND ai.moderacao = 'aprovada'
     ORDER BY ai.criado_em DESC
   `, [imobId]);
   return r.rows;
@@ -357,6 +358,143 @@ export const excluirAvaliacao = async (imobId: string, avaliacaoId: string) => {
     [cliente_id, imovel_id]
   );
   await query(`DELETE FROM avaliacao_imovel WHERE id = $1`, [avaliacaoId]);
+  return { ok: true };
+};
+
+// DISPONIBILIDADE
+export const listarDisponibilidade = async (imobId: string, corretorId?: string) => {
+  const r = await query(
+    `SELECT d.*, u.nome AS corretor_nome
+     FROM disponibilidade d JOIN usuario u ON u.id = d.corretor_id
+     WHERE d.imobiliaria_id = $1 ${corretorId ? 'AND d.corretor_id = $2' : ''}
+     ORDER BY u.nome, d.recorrente DESC, d.dia_semana, d.data_especifica, d.hora_inicio`,
+    corretorId ? [imobId, corretorId] : [imobId]
+  );
+  return r.rows;
+};
+
+export const criarDisponibilidade = async (imobId: string, corretorId: string, d: {
+  recorrente: boolean; dia_semana?: number; data_especifica?: string;
+  hora_inicio: string; hora_fim: string;
+}) => {
+  if (d.recorrente && d.dia_semana == null) throw new Error('Informe o dia da semana.');
+  if (!d.recorrente && !d.data_especifica) throw new Error('Informe a data específica.');
+  const r = await query(
+    `INSERT INTO disponibilidade (imobiliaria_id, corretor_id, recorrente, dia_semana, data_especifica, hora_inicio, hora_fim)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [imobId, corretorId, d.recorrente, d.dia_semana ?? null, d.data_especifica ?? null, d.hora_inicio, d.hora_fim]
+  );
+  return r.rows[0];
+};
+
+export const excluirDisponibilidade = async (imobId: string, id: string) => {
+  await query(`DELETE FROM disponibilidade WHERE id=$1 AND imobiliaria_id=$2`, [id, imobId]);
+  return { ok: true };
+};
+
+// Retorna slots livres de 1h para uma data específica (para o cliente agendar)
+export const slotsDisponiveis = async (imobId: string, data: string, imovelId: string) => {
+  const diaSemana = new Date(data + 'T12:00:00').getDay(); // 0=dom
+
+  // Busca blocos de disponibilidade dos corretores para o dia
+  const r = await query(
+    `SELECT d.id AS disponibilidade_id, d.hora_inicio, d.hora_fim,
+            u.id AS corretor_id, u.nome AS corretor_nome, u.telefone AS corretor_telefone
+     FROM disponibilidade d
+     JOIN usuario u ON u.id = d.corretor_id
+     WHERE d.imobiliaria_id = $1
+       AND u.ativo = TRUE
+       AND (
+         (d.recorrente = true AND d.dia_semana = $2)
+         OR (d.recorrente = false AND d.data_especifica = $3)
+       )
+     ORDER BY d.hora_inicio`,
+    [imobId, diaSemana, data]
+  );
+
+  // Expande cada bloco em slots de 1 hora
+  const toMinutes = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  const toTime = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+  // Se for hoje, calcula quantos minutos já passaram (hora atual + margem de 30min)
+  const hoje = new Date().toISOString().split('T')[0];
+  const agora = new Date();
+  const minutosAgora = data === hoje ? agora.getHours() * 60 + agora.getMinutes() + 30 : 0;
+
+  const slots: { disponibilidade_id: string; hora_inicio: string; hora_fim: string; corretor_id: string; corretor_nome: string; corretor_telefone: string }[] = [];
+  for (const row of r.rows) {
+    const ini = toMinutes(row.hora_inicio.slice(0, 5));
+    const fim = toMinutes(row.hora_fim.slice(0, 5));
+    for (let m = ini; m + 60 <= fim; m += 60) {
+      if (m < minutosAgora) continue; // descarta slots no passado
+      slots.push({
+        disponibilidade_id: row.disponibilidade_id,
+        hora_inicio: toTime(m),
+        hora_fim: toTime(m + 60),
+        corretor_id: row.corretor_id,
+        corretor_nome: row.corretor_nome,
+        corretor_telefone: row.corretor_telefone,
+      });
+    }
+  }
+
+  // Remove slots já ocupados por visita existente nessa data
+  const ocupados = await query(
+    `SELECT corretor_id, TO_CHAR(data_visita, 'HH24:MI') AS hora
+     FROM visita
+     WHERE imobiliaria_id=$1 AND imovel_id=$2
+       AND DATE(data_visita) = $3
+       AND status NOT IN ('cancelada')`,
+    [imobId, imovelId, data]
+  );
+  const ocupadoSet = new Set(ocupados.rows.map((o: { corretor_id: string; hora: string }) => `${o.corretor_id}_${o.hora}`));
+
+  return slots.filter(s => !ocupadoSet.has(`${s.corretor_id}_${s.hora_inicio}`));
+};
+
+// MODERAÇÃO
+export const listarAvaliacoesPendentes = async (imobId: string) => {
+  const r = await query(`
+    SELECT ai.id, ai.interesse, ai.comentario, ai.criado_em, ai.moderacao,
+           ai.imovel_id, ai.cliente_id,
+           i.titulo AS imovel_titulo, i.bairro, i.cidade,
+           c.nome AS cliente_nome, c.email AS cliente_email,
+           COALESCE(u.nome, '—') AS corretor_nome,
+           COALESCE(ai.nota_localizacao,0) AS nota_localizacao,
+           COALESCE(ai.nota_preco,0) AS nota_preco,
+           COALESCE(ai.nota_estado,0) AS nota_estado,
+           COALESCE(ai.nota_tamanho,0) AS nota_tamanho,
+           COALESCE(ai.nota_conforto,0) AS nota_conforto,
+           COALESCE(
+             (SELECT JSON_AGG(JSON_BUILD_OBJECT(
+               'comodo_nome', co.nome,
+               'nota', ac.nota,
+               'comentario', ac.comentario
+             ) ORDER BY co.nome)
+             FROM avaliacao_comodo ac
+             JOIN comodo co ON co.id = ac.comodo_id
+             WHERE ac.cliente_id = ai.cliente_id AND co.imovel_id = ai.imovel_id),
+           '[]') AS comodos_avaliados
+    FROM avaliacao_imovel ai
+    JOIN imovel i ON i.id = ai.imovel_id
+    JOIN cliente c ON c.id = ai.cliente_id
+    LEFT JOIN imovel_cliente ic ON ic.imovel_id = ai.imovel_id AND ic.cliente_id = ai.cliente_id
+    LEFT JOIN usuario u ON u.id = ic.corretor_id
+    WHERE i.imobiliaria_id = $1 AND ai.moderacao = 'pendente'
+    ORDER BY ai.criado_em ASC
+  `, [imobId]);
+  return r.rows;
+};
+
+export const moderarAvaliacao = async (imobId: string, avaliacaoId: string, acao: 'aprovada' | 'rejeitada') => {
+  const r = await query(
+    `UPDATE avaliacao_imovel SET moderacao=$1
+     WHERE id=$2 AND EXISTS (
+       SELECT 1 FROM imovel i WHERE i.id = avaliacao_imovel.imovel_id AND i.imobiliaria_id=$3
+     ) RETURNING id`,
+    [acao, avaliacaoId, imobId]
+  );
+  if (!r.rows[0]) throw new Error('Avaliação não encontrada');
   return { ok: true };
 };
 
@@ -394,11 +532,8 @@ export const getDashboard = async (imobId: string) => {
     query(`
       SELECT
         (SELECT COUNT(*) FROM imovel WHERE imobiliaria_id=$1 AND ativo=TRUE)::int AS total_imoveis,
-        (SELECT COUNT(*) FROM visita WHERE imobiliaria_id=$1)::int AS total_visitas,
-        (
-          (SELECT COUNT(*) FROM avaliacao a JOIN visita v ON v.id=a.visita_id WHERE v.imobiliaria_id=$1) +
-          (SELECT COUNT(*) FROM avaliacao_imovel ai JOIN imovel i ON i.id=ai.imovel_id WHERE i.imobiliaria_id=$1)
-        )::int AS total_avaliacoes,
+        (SELECT COUNT(*) FROM visita WHERE imobiliaria_id=$1 AND NOT (status='cancelada' AND criado_em < NOW() - INTERVAL '7 days'))::int AS total_visitas,
+        (SELECT COUNT(*) FROM avaliacao_imovel ai JOIN imovel i ON i.id=ai.imovel_id WHERE i.imobiliaria_id=$1 AND ai.moderacao='aprovada')::int AS total_avaliacoes,
         (SELECT COUNT(*) FROM visita v WHERE v.imobiliaria_id=$1
           AND NOT EXISTS (SELECT 1 FROM avaliacao a WHERE a.visita_id=v.id)
           AND NOT EXISTS (SELECT 1 FROM avaliacao_imovel ai WHERE ai.imovel_id=v.imovel_id AND ai.cliente_id=v.cliente_id)
@@ -407,17 +542,13 @@ export const getDashboard = async (imobId: string) => {
     `, [imobId]),
     query(`
       WITH all_avals AS (
-        SELECT a.interesse,
-          (a.nota_localizacao::float + a.nota_preco + a.nota_estado + a.nota_tamanho + a.nota_conforto) / 5.0 AS nota_media
-        FROM avaliacao a JOIN visita v ON v.id=a.visita_id WHERE v.imobiliaria_id=$1
-        UNION ALL
         SELECT ai.interesse,
           COALESCE((
             SELECT AVG(ac.nota) FROM avaliacao_comodo ac
             JOIN comodo c ON c.id=ac.comodo_id
             WHERE c.imovel_id=ai.imovel_id AND ac.cliente_id=ai.cliente_id
           ), 0) AS nota_media
-        FROM avaliacao_imovel ai JOIN imovel i ON i.id=ai.imovel_id WHERE i.imobiliaria_id=$1
+        FROM avaliacao_imovel ai JOIN imovel i ON i.id=ai.imovel_id WHERE i.imobiliaria_id=$1 AND ai.moderacao='aprovada'
       )
       SELECT
         ROUND(COALESCE(AVG(nota_media),0)::numeric,1) AS media_geral,
@@ -427,7 +558,7 @@ export const getDashboard = async (imobId: string) => {
         ROUND(COALESCE(COUNT(*) FILTER (WHERE interesse='SIM')::float / NULLIF(COUNT(*),0), 0)::numeric, 2) AS taxa_interesse_real
       FROM all_avals
     `, [imobId]),
-    query(`SELECT TO_CHAR(data_visita,'YYYY-MM') AS mes,COUNT(*)::int AS total FROM visita WHERE imobiliaria_id=$1 AND data_visita>=NOW()-INTERVAL '6 months' GROUP BY mes ORDER BY mes`, [imobId]),
+    query(`SELECT TO_CHAR(data_visita,'YYYY-MM') AS mes,COUNT(*)::int AS total FROM visita WHERE imobiliaria_id=$1 AND data_visita>=NOW()-INTERVAL '6 months' AND NOT (status='cancelada' AND criado_em < NOW() - INTERVAL '7 days') GROUP BY mes ORDER BY mes`, [imobId]),
     query(`
       WITH avals AS (SELECT v.imovel_id,COUNT(a.id)::float AS n,AVG((a.nota_localizacao*2.0+a.nota_preco*2.5+a.nota_estado*1.5+a.nota_tamanho*1.5+a.nota_conforto*2.5)/10.0) AS r,AVG(CASE a.interesse WHEN 'SIM' THEN 1.0 WHEN 'TALVEZ' THEN 0.5 ELSE 0 END) AS interesse FROM visita v JOIN avaliacao a ON a.visita_id=v.id WHERE v.imobiliaria_id=$1 GROUP BY v.imovel_id),global AS(SELECT COALESCE(AVG(r),0) AS c FROM avals)
       SELECT i.id,i.titulo,i.bairro,i.cidade,COALESCE(av.n,0)::int AS total_avaliacoes,ROUND(COALESCE(0.6*((av.n/(av.n+10))*av.r+(10/(av.n+10))*g.c)+0.3*av.interesse+0.1*LN(GREATEST(av.n,1)),0)::numeric,2) AS visitrank_score,CASE WHEN COALESCE(((av.n/(av.n+10))*av.r+(10/(av.n+10))*g.c)*av.interesse,0)>4 THEN 'altamente_atrativo' WHEN COALESCE(((av.n/(av.n+10))*av.r+(10/(av.n+10))*g.c)*av.interesse,0)>=3 THEN 'competitivo' WHEN COALESCE(((av.n/(av.n+10))*av.r+(10/(av.n+10))*g.c)*av.interesse,0)>=2 THEN 'precisa_melhorar' ELSE 'baixa_atratividade' END AS classificacao

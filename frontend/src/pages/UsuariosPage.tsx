@@ -19,7 +19,7 @@ export default function UsuariosPage() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ nome: '', email: '', perfil: 'Corretor', telefone: '' });
+  const [form, setForm] = useState({ nome: '', email: '', perfil: 'corretor', telefone: '' });
   const [saving, setSaving] = useState(false);
   const [erro, setErro] = useState('');
   const [sucesso, setSucesso] = useState('');
@@ -39,7 +39,7 @@ export default function UsuariosPage() {
     e.preventDefault(); setErro(''); setSucesso(''); setSaving(true);
     try {
       await authApi.criarUsuario(form);
-      setSucesso('Usuário criado!'); setForm({ nome: '', email: '', perfil: 'Corretor', telefone: '' }); setShowForm(false); load();
+      setSucesso('Usuário criado!'); setForm({ nome: '', email: '', perfil: 'corretor', telefone: '' }); setShowForm(false); load();
     } catch (err: unknown) { setErro((err as { response?: { data?: { erro?: string } } })?.response?.data?.erro || 'Erro ao criar.'); }
     finally { setSaving(false); }
   };
@@ -73,8 +73,9 @@ export default function UsuariosPage() {
             <div><label className="label">Nome *</label><input className="input" value={form.nome} onChange={set('nome')} required placeholder="Nome completo" /></div>
             <div><label className="label">Perfil *</label>
               <select className="input" value={form.perfil} onChange={set('perfil')}>
-                <option value="Corretor">Corretor</option>
-                <option value="Administrador">Administrador</option>
+                <option value="corretor">Corretor</option>
+                <option value="admin">Administrador</option>
+                <option value="moderador">Moderador</option>
               </select>
             </div>
           </div>
@@ -113,7 +114,7 @@ export default function UsuariosPage() {
                   <td className="px-5 py-3.5 font-medium text-slate-800">{u.nome}</td>
                   <td className="px-5 py-3.5 text-slate-500 text-xs">{u.email}</td>
                   <td className="px-5 py-3.5">
-                    <span className={`badge ${u.perfil === 'Administrador' ? 'bg-brand-50 text-brand-700 border border-brand-200' : 'bg-slate-100 text-slate-600'}`}>{u.perfil}</span>
+                    <span className={`badge ${u.perfil === 'admin' ? 'bg-brand-50 text-brand-700 border border-brand-200' : u.perfil === 'moderador' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-slate-100 text-slate-600'}`}>{u.perfil}</span>
                   </td>
                   <td className="px-5 py-3.5 text-slate-400 text-xs">{new Date(u.criado_em).toLocaleDateString('pt-BR')}</td>
                   <td className="px-5 py-3.5 text-right">

@@ -1,7 +1,7 @@
-export interface Usuario { id:string; imobiliaria_id:string; nome:string; email:string; perfil:'Administrador'|'Corretor'; ativo:boolean; criado_em:string; razao_social:string; primeiro_acesso:boolean; }
+export interface Usuario { id:string; imobiliaria_id:string; nome:string; email:string; perfil:'admin'|'corretor'|'moderador'; ativo:boolean; criado_em:string; razao_social:string; primeiro_acesso:boolean; }
 export interface Imovel { id:string; titulo:string; descricao?:string; bairro?:string; cidade?:string; preco?:number; metragem?:number; quartos?:number; banheiros?:number; vagas?:number; ativo:boolean; criado_em:string; }
 export interface Cliente { id:string; nome:string; email?:string; telefone?:string; ativo:boolean; criado_em:string; }
-export interface Visita { id:string; imovel_id:string; cliente_id:string; corretor_id:string; data_visita:string; qr_token:string; status:'agendada'|'realizada'|'cancelada'; criado_em:string; imovel_titulo?:string; cliente_nome?:string; corretor_nome?:string; qr_code_url?:string; }
+export interface Visita { id:string; imovel_id:string; cliente_id:string; corretor_id:string; data_visita:string; qr_token?:string; status:'agendada'|'realizada'|'cancelada'|'aguardando'; criado_em:string; imovel_titulo?:string; cliente_nome?:string; corretor_nome?:string; }
 export type Interesse = 'SIM'|'TALVEZ'|'NAO';
 export type Classificacao = 'altamente_atrativo'|'competitivo'|'precisa_melhorar'|'baixa_atratividade';
 export interface RankingImovel extends Imovel { total_avaliacoes:number; score_medio:number; score_ajustado:number; indice_interesse:number; indice_rejeicao:number; visitrank_score:number; atratividade:number; classificacao:Classificacao; }

@@ -6,7 +6,7 @@ import { Visita } from '../types';
 import { PageHeader, LoadingSpinner, EmptyState, StatusBadge } from '../components/ui';
 import { useAuth } from '../hooks/useAuth';
 
-type Filtro = 'todos' | 'agendada' | 'realizada' | 'cancelada' | 'sem_avaliacao' | 'aguardando';
+type Filtro = 'todos' | 'agendada' | 'realizada' | 'cancelada' | 'sem_avaliacao';
 type OrdemData = 'desc' | 'asc';
 
 interface VisitaComAvaliacao extends Visita { avaliada: boolean; }
@@ -15,7 +15,6 @@ const PAGE_SIZE = 15;
 
 // Prioridade de status para ordenação padrão (não realizadas primeiro)
 const STATUS_PRIO: Record<string, number> = {
-  aguardando: 0,
   agendada: 1,
   realizada: 2,
   cancelada: 3,
@@ -29,18 +28,11 @@ export default function VisitasPage() {
   const [search, setSearch] = useState('');
   const [ordemData, setOrdemData] = useState<OrdemData>('desc');
   const [pagina, setPagina] = useState(1);
-  const [qrModal, setQrModal] = useState<{ url: string; titulo: string } | null>(null);
   const [confirm, setConfirm] = useState<{ id: string; status: string; titulo: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; titulo: string; cliente: string } | null>(null);
-  const [avalConfirm, setAvalConfirm] = useState<{ id: string; titulo: string; cliente: string; confirmar: boolean } | null>(null);
 
   const load = () => { setLoading(true); visitasApi.listar().then(r => setVisitas(r.data)).finally(() => setLoading(false)); };
   useEffect(load, []);
-
-  const handleQr = async (v: VisitaComAvaliacao) => {
-    const r = await visitasApi.getQrCode(v.id);
-    setQrModal({ url: r.data.qr_code_url, titulo: v.imovel_titulo || '' });
-  };
 
   const handleStatus = async (id: string, status: string) => {
     await visitasApi.atualizarStatus(id, status); setConfirm(null); load();
@@ -53,15 +45,7 @@ export default function VisitasPage() {
     load();
   };
 
-  const handleAvalConfirm = async () => {
-    if (!avalConfirm) return;
-    await visitasApi.confirmarAvaliacao(avalConfirm.id, avalConfirm.confirmar);
-    setAvalConfirm(null);
-    load();
-  };
-
   const semAvaliacao = visitas.filter(v => !v.avaliada && v.status === 'realizada').length;
-  const aguardando   = visitas.filter(v => v.status === 'aguardando').length;
 
   // Filtered + searched + sorted list
   const processed = useMemo(() => {
@@ -69,7 +53,6 @@ export default function VisitasPage() {
     const list = visitas.filter(v => {
       // Status filter
       if (filtro === 'sem_avaliacao') { if (v.avaliada || v.status !== 'realizada') return false; }
-      else if (filtro === 'aguardando') { if (v.status !== 'aguardando') return false; }
       else if (filtro !== 'todos') { if (v.status !== filtro) return false; }
       // Text search
       if (q) {
@@ -107,30 +90,11 @@ export default function VisitasPage() {
     { key: 'realizada',              label: 'Realizadas' },
     { key: 'cancelada',              label: 'Canceladas' },
     { key: 'sem_avaliacao',          label: `⏳ Sem Avaliação${semAvaliacao > 0 ? ` (${semAvaliacao})` : ''}` },
-    { key: 'aguardando', label: `⚠️ Confirmação Pendente${aguardando > 0 ? ` (${aguardando})` : ''}` },
   ];
 
   return (
     <div className="animate-fade-in">
       <PageHeader title="Visitas" subtitle={`${visitas.length} registradas`} action={<Link to="/visitas/agendar" className="btn-primary">+ Agendar Visita</Link>} />
-
-      {aguardando > 0 && (
-        <div className="mb-4 px-4 py-3 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">⚠️</span>
-            <div>
-              <p className="text-sm font-semibold text-purple-900">
-                {aguardando} visita{aguardando > 1 ? 's' : ''} aguardando confirmação
-              </p>
-              <p className="text-xs text-purple-600">O cliente avaliou um imóvel antes da data agendada. Confirme se a visita foi realizada.</p>
-            </div>
-          </div>
-          <button onClick={() => setFiltro('aguardando')}
-            className="shrink-0 text-xs font-medium text-purple-700 bg-purple-100 hover:bg-purple-200 px-3 py-1.5 rounded-lg transition-colors">
-            Ver →
-          </button>
-        </div>
-      )}
 
       {/* Filtros de status */}
       <div className="flex gap-2 mb-3 flex-wrap">
@@ -139,13 +103,10 @@ export default function VisitasPage() {
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
               filtro === f.key
                 ? f.key === 'sem_avaliacao' ? 'bg-orange-500 text-white'
-                  : f.key === 'aguardando' ? 'bg-purple-600 text-white'
                   : 'bg-brand-600 text-white'
                 : f.key === 'sem_avaliacao' && semAvaliacao > 0
                   ? 'bg-orange-50 border border-orange-300 text-orange-600 hover:bg-orange-100'
-                  : f.key === 'aguardando' && aguardando > 0
-                    ? 'bg-purple-50 border border-purple-300 text-purple-600 hover:bg-purple-100'
-                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
             }`}>
             {f.label}
           </button>
@@ -190,35 +151,27 @@ export default function VisitasPage() {
                 </tr></thead>
                 <tbody className="divide-y divide-slate-50">
                   {paginated.map(v => (
-                    <tr key={v.id} className={`hover:bg-slate-50/50 transition-colors ${v.status === 'aguardando' ? 'bg-purple-50/40' : !v.avaliada && v.status === 'realizada' ? 'bg-orange-50/30' : ''}`}>
+                    <tr key={v.id} className={`hover:bg-slate-50/50 transition-colors ${!v.avaliada && v.status === 'realizada' ? 'bg-orange-50/30' : ''}`}>
                       <td className="px-4 py-3 font-medium text-slate-800 max-w-[160px] truncate">{v.imovel_titulo}</td>
                       <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{v.cliente_nome}</td>
                       <td className="px-4 py-3 text-slate-500 whitespace-nowrap hidden lg:table-cell">{v.corretor_nome}</td>
                       <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{fmt(v.data_visita)}</td>
                       <td className="px-4 py-3"><StatusBadge status={v.status} /></td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        {v.status === 'aguardando'
-                          ? <span className="text-xs font-medium text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">⚠️ Confirmar</span>
-                          : v.avaliada
-                            ? <span className="text-xs font-medium text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">✓ Avaliada</span>
-                            : v.status === 'realizada'
-                              ? <span className="text-xs font-medium text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">⏳ Pendente</span>
-                              : <span className="text-xs text-slate-300">—</span>
+                        {v.avaliada
+                          ? <span className="text-xs font-medium text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">✓ Avaliada</span>
+                          : v.status === 'realizada'
+                            ? <span className="text-xs font-medium text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">⏳ Pendente</span>
+                            : <span className="text-xs text-slate-300">—</span>
                         }
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2 whitespace-nowrap">
-                          <button onClick={() => handleQr(v)} className="text-brand-600 hover:text-brand-800 text-xs font-medium">QR Code</button>
-                          <a href={`/avaliar/${v.qr_token}`} target="_blank" rel="noreferrer" className="text-slate-500 hover:text-slate-800 text-xs font-medium">🔗 Avaliar</a>
                           {v.status === 'agendada' && <>
                             <button onClick={() => setConfirm({ id: v.id, status: 'realizada', titulo: v.imovel_titulo || '' })} className="text-green-600 hover:text-green-800 text-xs font-medium">✓ Realizada</button>
                             <button onClick={() => setConfirm({ id: v.id, status: 'cancelada', titulo: v.imovel_titulo || '' })} className="text-red-500 hover:text-red-700 text-xs font-medium">Cancelar</button>
                           </>}
-                          {v.status === 'aguardando' && <>
-                            <button onClick={() => setAvalConfirm({ id: v.id, titulo: v.imovel_titulo || '', cliente: v.cliente_nome || '', confirmar: true })} className="text-green-600 hover:text-green-800 text-xs font-semibold">✓ Confirmar</button>
-                            <button onClick={() => setAvalConfirm({ id: v.id, titulo: v.imovel_titulo || '', cliente: v.cliente_nome || '', confirmar: false })} className="text-red-500 hover:text-red-700 text-xs font-semibold">✕ Rejeitar</button>
-                          </>}
-                          {isAdmin && v.status === 'realizada' && (
+                          {isAdmin && (
                             <button
                               onClick={() => setDeleteConfirm({ id: v.id, titulo: v.imovel_titulo || '', cliente: v.cliente_nome || '' })}
                               className="text-red-400 hover:text-red-600 transition-colors"
@@ -335,68 +288,6 @@ export default function VisitasPage() {
         document.body
       )}
 
-      {/* Confirm avaliação antecipada */}
-      {avalConfirm && createPortal(
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999] p-4" onClick={() => setAvalConfirm(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full animate-fade-in overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="flex flex-col items-center px-6 pt-8 pb-6 text-center">
-              <div className={`w-14 h-14 rounded-full flex items-center justify-center text-2xl mb-4 ${avalConfirm.confirmar ? 'bg-green-50' : 'bg-red-50'}`}>
-                {avalConfirm.confirmar ? '✅' : '🗑️'}
-              </div>
-              <h3 className="font-display font-bold text-slate-900 text-lg mb-2">
-                {avalConfirm.confirmar ? 'Confirmar visita realizada?' : 'Rejeitar avaliação?'}
-              </h3>
-              <p className="text-sm text-slate-500 leading-relaxed">
-                Imóvel: <strong className="text-slate-700">{avalConfirm.titulo}</strong><br />
-                Cliente: <strong className="text-slate-700">{avalConfirm.cliente}</strong>
-              </p>
-              <p className="text-xs text-slate-400 mt-3 leading-relaxed">
-                {avalConfirm.confirmar
-                  ? 'O cliente avaliou antes da data agendada. Confirma que a visita foi realizada mesmo assim?'
-                  : 'A avaliação enviada pelo cliente será excluída e a visita voltará ao status "Agendada".'}
-              </p>
-            </div>
-            <div className="flex border-t border-slate-100">
-              <button onClick={() => setAvalConfirm(null)}
-                className="flex-1 py-3.5 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors border-r border-slate-100">
-                Cancelar
-              </button>
-              <button onClick={handleAvalConfirm}
-                className={`flex-1 py-3.5 text-sm font-semibold transition-colors ${avalConfirm.confirmar ? 'text-green-600 hover:bg-green-50' : 'text-red-600 hover:bg-red-50'}`}>
-                {avalConfirm.confirmar ? 'Confirmar' : 'Rejeitar e Apagar'}
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* QR Modal */}
-      {qrModal && createPortal(
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 overflow-hidden" onClick={() => setQrModal(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full animate-fade-in overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="flex flex-col items-center px-6 pt-8 pb-6 text-center">
-              <h3 className="font-display font-bold text-slate-900 text-lg mb-1">QR Code da Visita</h3>
-              <p className="text-xs text-slate-500 mb-4 truncate max-w-full">{qrModal.titulo}</p>
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 inline-block mb-3">
-                <img src={qrModal.url} alt="QR Code" className="w-48 h-48" />
-              </div>
-              <p className="text-xs text-slate-400">Peça ao visitante escanear para avaliar o imóvel.</p>
-            </div>
-            <div className="flex border-t border-slate-100">
-              <a href={qrModal.url} download="qrcode.png"
-                className="flex-1 py-3.5 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors border-r border-slate-100 text-center">
-                ⬇ Baixar
-              </a>
-              <button onClick={() => setQrModal(null)}
-                className="flex-1 py-3.5 text-sm font-semibold text-brand-600 hover:bg-brand-50 transition-colors">
-                Fechar
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 }

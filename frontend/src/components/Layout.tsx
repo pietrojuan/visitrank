@@ -3,29 +3,35 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
 const NAV_ADMIN = [
-  { to:'/',                   label:'Dashboard',        icon:'▦', exact:true },
-  { to:'/imoveis',            label:'Imóveis',          icon:'🏠' },
-  { to:'/clientes',           label:'Clientes',         icon:'👥' },
-  { to:'/corretor/clientes',  label:'Imóveis por Cliente', icon:'🔗' },
-  { to:'/visitas',            label:'Visitas',          icon:'📅' },
-  { to:'/ranking',            label:'Ranking',          icon:'🏆' },
-  { to:'/usuarios',           label:'Usuários',         icon:'🔑' },
+  { to:'/',            label:'Dashboard',   icon:'▦', exact:true },
+  { to:'/imoveis',     label:'Imóveis',     icon:'🏠' },
+  { to:'/clientes',    label:'Clientes',    icon:'👥' },
+  { to:'/visitas',     label:'Visitas',     icon:'📅' },
+  { to:'/corretores',  label:'Corretores',  icon:'🧑‍💼' },
+  { to:'/moderacao',   label:'Moderação',   icon:'🛡️' },
+  { to:'/ranking',     label:'Ranking',     icon:'🏆' },
+  { to:'/usuarios',    label:'Usuários',    icon:'🔑' },
 ];
 
 const NAV_CORRETOR = [
-  { to:'/',                   label:'Dashboard',        icon:'▦', exact:true },
-  { to:'/imoveis',            label:'Imóveis',          icon:'🏠' },
-  { to:'/clientes',           label:'Clientes',         icon:'👥' },
-  { to:'/corretor/clientes',  label:'Imóveis por Cliente', icon:'🔗' },
-  { to:'/visitas',            label:'Visitas',          icon:'📅' },
-  { to:'/ranking',            label:'Ranking',          icon:'🏆' },
+  { to:'/',                label:'Dashboard',      icon:'▦', exact:true },
+  { to:'/imoveis',         label:'Imóveis',        icon:'🏠' },
+  { to:'/clientes',        label:'Clientes',       icon:'👥' },
+  { to:'/visitas',         label:'Visitas',        icon:'📅' },
+  { to:'/disponibilidade', label:'Disponibilidade',icon:'🗓️' },
+  { to:'/ranking',         label:'Ranking',        icon:'🏆' },
+];
+
+const NAV_MODERADOR = [
+  { to:'/',          label:'Dashboard', icon:'▦', exact:true },
+  { to:'/moderacao', label:'Moderação', icon:'🛡️' },
 ];
 
 export default function Layout() {
-  const { usuario, logout, isAdmin } = useAuth();
+  const { usuario, logout, isAdmin, isModerador } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const navItems = isAdmin ? NAV_ADMIN : NAV_CORRETOR;
+  const navItems = isAdmin ? NAV_ADMIN : isModerador ? NAV_MODERADOR : NAV_CORRETOR;
 
   const Sidebar = () => (
     <>

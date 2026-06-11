@@ -14,8 +14,10 @@ import AgendarVisitaPage from './pages/AgendarVisitaPage';
 import RankingPage from './pages/RankingPage';
 import UsuariosPage from './pages/UsuariosPage';
 import AvaliacaoPage from './pages/AvaliacaoPage';
-import CorretorClientesPage from './pages/CorretorClientesPage';
 import TrocarSenhaPage from './pages/TrocarSenhaPage';
+import DisponibilidadePage from './pages/DisponibilidadePage';
+import ModeracaoPage from './pages/ModeracaoPage';
+import CorretoresPage from './pages/CorretoresPage';
 // Portal do cliente
 import ClienteLoginPage from './pages/ClienteLoginPage';
 import ClienteImoveisPage from './pages/ClienteImoveisPage';
@@ -54,8 +56,14 @@ const AppRoutes = () => {
       <Route path="/cliente/imoveis" element={<ClienteGuard><ClienteImoveisPage /></ClienteGuard>} />
       <Route path="/cliente/imoveis/:id" element={<ClienteGuard><ClienteAvaliacaoPage /></ClienteGuard>} />
 
-      {/* Login corretor/admin */}
-      <Route path="/login" element={token && usuario ? <Navigate to="/" replace /> : <LoginPage />} />
+      {/* Login unificado */}
+      <Route path="/login" element={
+        token && usuario
+          ? <Navigate to="/" replace />
+          : localStorage.getItem('vr_cli_token')
+            ? <Navigate to="/cliente/imoveis" replace />
+            : <LoginPage />
+      } />
 
       {/* Trocar senha — fora do Layout, acessível mesmo no primeiro acesso */}
       <Route path="/trocar-senha" element={<Guard><TrocarSenhaPage /></Guard>} />
@@ -72,9 +80,11 @@ const AppRoutes = () => {
         <Route path="clientes/:id" element={<ClienteFormPage />} />
         <Route path="visitas" element={<VisitasPage />} />
         <Route path="visitas/agendar" element={<AgendarVisitaPage />} />
+        <Route path="disponibilidade" element={<DisponibilidadePage />} />
+        <Route path="moderacao" element={<ModeracaoPage />} />
+        <Route path="corretores" element={<CorretoresPage />} />
         <Route path="ranking" element={<RankingPage />} />
         <Route path="usuarios" element={<UsuariosPage />} />
-        <Route path="corretor/clientes" element={<CorretorClientesPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

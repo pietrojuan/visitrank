@@ -1,7 +1,7 @@
 export interface JwtPayload {
   userId: string;
   imobiliariaId: string;
-  perfil: 'Administrador' | 'Corretor';
+  perfil: string;
   email: string;
 }
 

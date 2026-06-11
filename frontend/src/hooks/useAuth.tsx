@@ -9,6 +9,8 @@ interface AuthCtx {
   logout: () => void;
   updateUsuario: (patch: Partial<Usuario>) => void;
   isAdmin: boolean;
+  isModerador: boolean;
+  perfil: string | null;
 }
 const Ctx = createContext<AuthCtx | null>(null);
 
@@ -45,8 +47,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
+  const perfil = usuario?.perfil ?? null;
   return (
-    <Ctx.Provider value={{ token, usuario, login, logout, updateUsuario, isAdmin: usuario?.perfil === 'Administrador' }}>
+    <Ctx.Provider value={{
+      token, usuario, login, logout, updateUsuario,
+      isAdmin: perfil === 'admin',
+      isModerador: perfil === 'moderador',
+      perfil,
+    }}>
       {children}
     </Ctx.Provider>
   );

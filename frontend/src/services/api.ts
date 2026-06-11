@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const api = axios.create({ baseURL: '/api', headers: { 'Content-Type': 'application/json' } });
+const BASE = import.meta.env.VITE_API_URL ?? '/api';
+
+const api = axios.create({ baseURL: BASE, headers: { 'Content-Type': 'application/json' } });
 
 api.interceptors.request.use(cfg => {
   const token = localStorage.getItem('vr_token') || localStorage.getItem('vr_cli_token');
@@ -23,6 +25,12 @@ api.interceptors.response.use(
   }
 );
 
+const cliHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('vr_cli_token')}` });
+const cliGet  = (path: string) => axios.get(`${BASE}${path}`,  { headers: cliHeader() });
+const cliPost = (path: string, d?: object) => axios.post(`${BASE}${path}`, d, { headers: cliHeader() });
+const cliPut  = (path: string, d?: object) => axios.put(`${BASE}${path}`,  d, { headers: cliHeader() });
+const cliDel  = (path: string) => axios.delete(`${BASE}${path}`, { headers: cliHeader() });
+
 export const authApi = {
   login: (email: string, senha: string) => api.post('/auth/login', { email, senha }),
   listarUsuarios: () => api.get('/auth/usuarios'),
@@ -32,12 +40,27 @@ export const authApi = {
 };
 
 export const clienteAuthApi = {
+  registrar: (d: object) => api.post('/cliente/registrar', d),
   primeiroAcesso: (d: object) => api.post('/cliente/primeiro-acesso', d),
   login: (email: string, senha: string) => api.post('/cliente/login', { email, senha }),
-  meusImoveis: () => { const t = localStorage.getItem('vr_cli_token'); return axios.get('/api/cliente/imoveis', { headers: { Authorization: `Bearer ${t}` } }); },
-  detalheImovel: (id: string) => { const t = localStorage.getItem('vr_cli_token'); return axios.get(`/api/cliente/imoveis/${id}`, { headers: { Authorization: `Bearer ${t}` } }); },
-  avaliar: (id: string, d: object) => { const t = localStorage.getItem('vr_cli_token'); return axios.post(`/api/cliente/imoveis/${id}/avaliar`, d, { headers: { Authorization: `Bearer ${t}` } }); },
-  minhasAvaliacoes: () => { const t = localStorage.getItem('vr_cli_token'); return axios.get('/api/cliente/minhas-avaliacoes', { headers: { Authorization: `Bearer ${t}` } }); },
+  todosImoveis: () => cliGet('/cliente/todos-imoveis'),
+  meusImoveis: () => cliGet('/cliente/imoveis'),
+  detalheImovel: (id: string) => cliGet(`/cliente/imoveis/${id}`),
+  avaliar: (id: string, d: object) => cliPost(`/cliente/imoveis/${id}/avaliar`, d),
+  minhasAvaliacoes: () => cliGet('/cliente/minhas-avaliacoes'),
+  atualizarPerfil: (d: object) => cliPut('/cliente/perfil', d),
+  trocarSenha: (senha_atual: string, senha_nova: string) => cliPut('/cliente/senha', { senha_atual, senha_nova }),
+  // Agendamento
+  imoveisParaAgendar: () => cliGet('/cliente/imoveis-agenda'),
+  datasDisponiveis: (imovel_id: string, mes: string) => cliGet(`/cliente/datas-disponiveis?imovel_id=${imovel_id}&mes=${mes}`),
+  slots: (data: string, imovel_id: string) => cliGet(`/cliente/slots?data=${data}&imovel_id=${imovel_id}`),
+  agendar: (d: object) => cliPost('/cliente/agendar', d),
+  // Imóveis externos
+  listarExternos: () => cliGet('/cliente/externos'),
+  criarExterno: (d: object) => cliPost('/cliente/externos', d),
+  editarExterno: (id: string, d: object) => cliPut(`/cliente/externos/${id}`, d),
+  excluirExterno: (id: string) => cliDel(`/cliente/externos/${id}`),
+  avaliarExterno: (id: string, d: object) => cliPost(`/cliente/externos/${id}/avaliar`, d),
 };
 
 export const imoveisApi = {
@@ -46,7 +69,6 @@ export const imoveisApi = {
   criar: (d: object) => api.post('/imoveis', d),
   atualizar: (id: string, d: object) => api.put(`/imoveis/${id}`, d),
   excluir: (id: string) => api.delete(`/imoveis/${id}`),
-  // Fotos
   listarFotos: (id: string) => api.get(`/imoveis/${id}/fotos`),
   uploadFotos: (id: string, files: File[]) => {
     const fd = new FormData();
@@ -54,7 +76,6 @@ export const imoveisApi = {
     return api.post(`/imoveis/${id}/fotos`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
   excluirFoto: (imovelId: string, fotoId: string) => api.delete(`/imoveis/${imovelId}/fotos/${fotoId}`),
-  // Cômodos
   listarComodos: (id: string) => api.get(`/imoveis/${id}/comodos`),
   criarComodo: (id: string, nome: string) => api.post(`/imoveis/${id}/comodos`, { nome }),
   atualizarComodo: (id: string, comodoId: string, nome: string) => api.put(`/imoveis/${id}/comodos/${comodoId}`, { nome }),
@@ -73,17 +94,38 @@ export const clientesApi = {
 export const visitasApi = {
   listar: () => api.get('/visitas'),
   agendar: (d: object) => api.post('/visitas', d),
-  getQrCode: (id: string) => api.get(`/visitas/${id}/qrcode`),
   atualizarStatus: (id: string, status: string) => api.put(`/visitas/${id}/status`, { status }),
   confirmarAvaliacao: (id: string, confirmar: boolean) => api.post(`/visitas/${id}/confirmar-avaliacao`, { confirmar }),
   excluir: (id: string) => api.delete(`/visitas/${id}`),
 };
 
+export const disponibilidadeApi = {
+  listar: (corretor_id?: string) => api.get('/disponibilidade' + (corretor_id ? `?corretor_id=${corretor_id}` : '')),
+  criar: (d: object) => api.post('/disponibilidade', d),
+  excluir: (id: string) => api.delete(`/disponibilidade/${id}`),
+};
+
+export const moderacaoApi = {
+  pendentes: () => api.get('/moderacao/pendentes'),
+  moderar: (id: string, acao: 'aprovada' | 'rejeitada') => api.put(`/moderacao/${id}`, { acao }),
+};
+
 export const corretorApi = {
   clientesComImoveis: () => api.get('/corretor/clientes'),
-  imoveisDisponiveis: () => api.get('/corretor/imoveis-disponiveis'),
-  liberarImovel: (cliente_id: string, imovel_id: string) => api.post('/corretor/liberar', { cliente_id, imovel_id }),
-  removerImovel: (cliente_id: string, imovel_id: string) => api.delete('/corretor/remover', { data: { cliente_id, imovel_id } }),
+};
+
+export const adminApi = {
+  listarCorretores: () => api.get('/admin/corretores'),
+  mudarCorretorCliente: (clienteId: string, corretor_id: string) => api.put(`/admin/clientes/${clienteId}/corretor`, { corretor_id }),
+  listarDisponibilidadeCorretor: (corretorId: string) => api.get(`/admin/corretores/${corretorId}/disponibilidade`),
+  adicionarSlotCorretor: (corretorId: string, d: object) => api.post(`/admin/corretores/${corretorId}/disponibilidade`, d),
+  excluirSlot: (id: string) => api.delete(`/admin/disponibilidade/${id}`),
+};
+
+export const publicApi = {
+  getVisita: (token: string) => api.get(`/avaliar/${token}`),
+  avaliar: (token: string, d: object) => api.post(`/avaliar/${token}`, d),
+  imobiliarias: () => api.get('/public/imobiliarias'),
 };
 
 export const avaliacoesApi = {
@@ -95,11 +137,6 @@ export const avaliacoesApi = {
 export const rankingApi = {
   getRanking: () => api.get('/ranking'),
   getDashboard: () => api.get('/dashboard'),
-};
-
-export const publicApi = {
-  getVisita: (token: string) => axios.get(`/api/visitas/public/${token}`),
-  avaliar: (token: string, d: object) => axios.post(`/api/visitas/public/${token}/avaliar`, d),
 };
 
 export const fotoUrl = (fotoId: string) => `/api/fotos/${fotoId}`;

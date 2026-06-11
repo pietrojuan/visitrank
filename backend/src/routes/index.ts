@@ -1,11 +1,12 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { autenticar, apenasAdmin, autenticarCliente } from '../middlewares/auth';
+import { autenticar, apenasAdmin, apenasAdminOuModerador, autenticarCliente } from '../middlewares/auth';
 import * as svc from '../services/index';
 import * as fotos from '../services/fotos';
 import * as comodos from '../services/comodos';
 import * as clienteAuth from '../services/clienteAuth';
 import * as corretorSvc from '../services/corretorClientes';
+import { query } from '../database/db';
 
 const r = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -17,6 +18,12 @@ const imobId  = (req: Request) => req.user!.imobiliariaId;
 const userId  = (req: Request) => req.user!.userId;
 const cliId   = (req: Request) => req.clienteUser!.clienteId;
 const cliImob = (req: Request) => req.clienteUser!.imobiliariaId;
+
+// ── PÚBLICO (sem autenticação) ────────────────────────────
+r.get('/public/imobiliarias', wrap(async (_req, res) => {
+  const result = await query('SELECT id, razao_social FROM imobiliaria ORDER BY razao_social', []);
+  res.json(result.rows);
+}));
 
 // ── AUTH CORRETOR/ADMIN ───────────────────────────────────
 r.post('/auth/login', wrap(async (req, res) => { res.json(await svc.login(req.body.email, req.body.senha)); }));
@@ -30,6 +37,11 @@ r.put('/auth/senha', autenticar, wrap(async (req, res) => {
 }));
 
 // ── AUTH CLIENTE ──────────────────────────────────────────
+r.post('/cliente/registrar', wrap(async (req, res) => {
+  const { imobiliaria_id, nome, email, senha, telefone } = req.body;
+  if (!imobiliaria_id) throw new Error('Selecione a imobiliária.');
+  res.status(201).json(await clienteAuth.registrarCliente(imobiliaria_id, { nome, email, senha, telefone }));
+}));
 r.post('/cliente/primeiro-acesso', wrap(async (req, res) => {
   res.json(await clienteAuth.primeiroAcesso(req.body.email, req.body.cpf, req.body.senha));
 }));
@@ -38,6 +50,9 @@ r.post('/cliente/login', wrap(async (req, res) => {
 }));
 
 // ── PORTAL DO CLIENTE ─────────────────────────────────────
+r.get('/cliente/todos-imoveis', autenticarCliente, wrap(async (req, res) => {
+  res.json(await clienteAuth.todosImoveisCliente(cliId(req), cliImob(req)));
+}));
 r.get('/cliente/imoveis', autenticarCliente, wrap(async (req, res) => {
   res.json(await clienteAuth.imoveisDoCliente(cliId(req), cliImob(req)));
 }));
@@ -50,6 +65,48 @@ r.post('/cliente/imoveis/:id/avaliar', autenticarCliente, wrap(async (req, res) 
 }));
 r.get('/cliente/minhas-avaliacoes', autenticarCliente, wrap(async (req, res) => {
   res.json(await clienteAuth.minhasAvaliacoes(cliId(req)));
+}));
+r.put('/cliente/perfil', autenticarCliente, wrap(async (req, res) => {
+  res.json(await clienteAuth.atualizarPerfilCliente(cliId(req), req.body));
+}));
+r.put('/cliente/senha', autenticarCliente, wrap(async (req, res) => {
+  res.json(await clienteAuth.trocarSenhaCliente(cliId(req), req.body.senha_atual, req.body.senha_nova));
+}));
+
+// ── AGENDAMENTO (CLIENTE) ─────────────────────────────────
+r.get('/cliente/datas-disponiveis', autenticarCliente, wrap(async (req, res) => {
+  const { imovel_id, mes } = req.query as { imovel_id: string; mes: string };
+  if (!imovel_id || !mes) throw new Error('imovel_id e mes são obrigatórios');
+  res.json(await clienteAuth.datasDisponiveisMes(cliImob(req), imovel_id, mes + '-01'));
+}));
+r.get('/cliente/imoveis-agenda', autenticarCliente, wrap(async (req, res) => {
+  res.json(await clienteAuth.imoveisParaAgendar(cliImob(req)));
+}));
+r.get('/cliente/slots', autenticarCliente, wrap(async (req, res) => {
+  const { data, imovel_id } = req.query as { data: string; imovel_id: string };
+  if (!data || !imovel_id) throw new Error('data e imovel_id são obrigatórios');
+  res.json(await svc.slotsDisponiveis(cliImob(req), data, imovel_id));
+}));
+r.post('/cliente/agendar', autenticarCliente, wrap(async (req, res) => {
+  const { imovel_id, corretor_id, data_hora } = req.body;
+  res.status(201).json(await clienteAuth.agendarVisitaCliente(cliImob(req), imovel_id, cliId(req), corretor_id, data_hora));
+}));
+
+// ── IMÓVEIS EXTERNOS (CLIENTE) ────────────────────────────
+r.get('/cliente/externos', autenticarCliente, wrap(async (req, res) => {
+  res.json(await clienteAuth.listarImoveisExternos(cliId(req)));
+}));
+r.post('/cliente/externos', autenticarCliente, wrap(async (req, res) => {
+  res.status(201).json(await clienteAuth.criarImovelExterno(cliId(req), cliImob(req), req.body));
+}));
+r.put('/cliente/externos/:id', autenticarCliente, wrap(async (req, res) => {
+  res.json(await clienteAuth.editarImovelExterno(cliId(req), req.params.id, req.body));
+}));
+r.delete('/cliente/externos/:id', autenticarCliente, wrap(async (req, res) => {
+  res.json(await clienteAuth.excluirImovelExterno(cliId(req), req.params.id));
+}));
+r.post('/cliente/externos/:id/avaliar', autenticarCliente, wrap(async (req, res) => {
+  res.json(await clienteAuth.avaliarImovelExterno(cliId(req), req.params.id, req.body));
 }));
 
 // ── IMÓVEIS ───────────────────────────────────────────────
@@ -117,10 +174,7 @@ r.get('/clientes/:id', autenticar, wrap(async (req, res) => {
   d ? res.json(d) : res.status(404).json({ erro: 'Não encontrado' });
 }));
 r.post('/clientes', autenticar, wrap(async (req, res) => {
-  const body = { ...req.body };
-  // Se for corretor, o corretor_id é o próprio usuário
-  if (req.user!.perfil === 'Corretor') body.corretor_id = userId(req);
-  res.status(201).json(await svc.criarCliente(imobId(req), body));
+  res.status(201).json(await svc.criarCliente(imobId(req), req.body));
 }));
 r.put('/clientes/:id', autenticar, wrap(async (req, res) => {
   const d = await svc.atualizarCliente(imobId(req), req.params.id, req.body);
@@ -133,37 +187,25 @@ r.delete('/clientes/:id', autenticar, apenasAdmin, wrap(async (req, res) => {
   await svc.excluirCliente(imobId(req), req.params.id); res.json({ ok: true });
 }));
 
-// ── CORRETOR — GESTÃO DE CLIENTES/IMÓVEIS ────────────────
-r.get('/corretor/clientes', autenticar, wrap(async (req, res) => {
-  res.json(await corretorSvc.clientesComImoveis(imobId(req)));
+// ── DISPONIBILIDADE DO CORRETOR ───────────────────────────
+r.get('/disponibilidade', autenticar, wrap(async (req, res) => {
+  const corretorId = req.user!.perfil?.toLowerCase() === 'corretor' ? userId(req) : (req.query.corretor_id as string | undefined);
+  res.json(await svc.listarDisponibilidade(imobId(req), corretorId));
 }));
-r.get('/corretor/imoveis-disponiveis', autenticar, wrap(async (req, res) => {
-  res.json(await corretorSvc.imoveisDisponiveis(imobId(req)));
+r.post('/disponibilidade', autenticar, wrap(async (req, res) => {
+  const corretorId = req.user!.perfil?.toLowerCase() === 'corretor' ? userId(req) : req.body.corretor_id;
+  res.status(201).json(await svc.criarDisponibilidade(imobId(req), corretorId, req.body));
 }));
-r.post('/corretor/liberar', autenticar, wrap(async (req, res) => {
-  const { cliente_id, imovel_id } = req.body;
-  res.json(await corretorSvc.liberarImovel(imobId(req), userId(req), cliente_id, imovel_id));
-}));
-r.delete('/corretor/remover', autenticar, wrap(async (req, res) => {
-  const { cliente_id, imovel_id } = req.body;
-  res.json(await corretorSvc.removerImovel(cliente_id, imovel_id));
-}));
-
-// ── AVALIAÇÃO PÚBLICA (via QR token) ─────────────────────
-r.get('/visitas/public/:token', wrap(async (req, res) => {
-  const v = await svc.buscarVisitaPorToken(req.params.token);
-  if (!v) { res.status(404).json({ erro: 'Visita não encontrada' }); return; }
-  const cs = await comodos.listarComodos(v.imovel_id);
-  res.json({ imovel_titulo: v.imovel_titulo, comodos: cs });
-}));
-r.post('/visitas/public/:token/avaliar', wrap(async (req, res) => {
-  res.json(await svc.criarAvaliacao(req.params.token, req.body));
+r.delete('/disponibilidade/:id', autenticar, wrap(async (req, res) => {
+  res.json(await svc.excluirDisponibilidade(imobId(req), req.params.id));
 }));
 
 // ── VISITAS ───────────────────────────────────────────────
-r.get('/visitas', autenticar, wrap(async (req, res) => { res.json(await svc.listarVisitas(imobId(req))); }));
+r.get('/visitas', autenticar, wrap(async (req, res) => {
+  const corretorId = req.user!.perfil?.toLowerCase() === 'corretor' ? userId(req) : undefined;
+  res.json(await svc.listarVisitas(imobId(req), corretorId));
+}));
 r.post('/visitas', autenticar, wrap(async (req, res) => { res.status(201).json(await svc.agendarVisita(imobId(req), req.body)); }));
-r.get('/visitas/:id/qrcode', autenticar, wrap(async (req, res) => { res.json({ qr_code_url: await svc.getQrCode(imobId(req), req.params.id) }); }));
 r.put('/visitas/:id/status', autenticar, wrap(async (req, res) => {
   const d = await svc.atualizarStatus(imobId(req), req.params.id, req.body.status);
   d ? res.json(d) : res.status(404).json({ erro: 'Não encontrado' });
@@ -183,6 +225,54 @@ r.get('/avaliacoes/:id', autenticar, wrap(async (req, res) => {
 }));
 r.delete('/avaliacoes/:id', autenticar, apenasAdmin, wrap(async (req, res) => {
   res.json(await svc.excluirAvaliacao(imobId(req), req.params.id));
+}));
+
+// ── MODERAÇÃO ─────────────────────────────────────────────
+r.get('/moderacao/pendentes', autenticar, apenasAdminOuModerador, wrap(async (req, res) => {
+  res.json(await svc.listarAvaliacoesPendentes(imobId(req)));
+}));
+r.put('/moderacao/:id', autenticar, apenasAdminOuModerador, wrap(async (req, res) => {
+  const acao = req.body.acao as 'aprovada' | 'rejeitada';
+  if (!['aprovada', 'rejeitada'].includes(acao)) throw new Error('Ação inválida');
+  res.json(await svc.moderarAvaliacao(imobId(req), req.params.id, acao));
+}));
+
+// ── GESTÃO DE CORRETORES (admin) ──────────────────────────
+// Lista corretores com seus clientes (admin muda corretor do cliente)
+r.get('/admin/corretores', autenticar, apenasAdmin, wrap(async (req, res) => {
+  const r2 = await query(
+    `SELECT id, nome, email, telefone FROM usuario
+     WHERE imobiliaria_id=$1 AND perfil='corretor' AND ativo=TRUE ORDER BY nome`,
+    [imobId(req)]
+  );
+  res.json(r2.rows);
+}));
+
+// Muda o corretor responsável por um cliente
+r.put('/admin/clientes/:clienteId/corretor', autenticar, apenasAdmin, wrap(async (req, res) => {
+  const { corretor_id } = req.body;
+  await query(
+    `UPDATE cliente SET corretor_id=$1 WHERE id=$2 AND imobiliaria_id=$3`,
+    [corretor_id, req.params.clienteId, imobId(req)]
+  );
+  // Atualiza também imovel_cliente existentes deste cliente para o novo corretor
+  await query(
+    `UPDATE imovel_cliente SET corretor_id=$1 WHERE cliente_id=$2`,
+    [corretor_id, req.params.clienteId]
+  );
+  res.json({ ok: true });
+}));
+
+// Admin pode adicionar/excluir slots de qualquer corretor (mesmas rotas de disponibilidade)
+// As rotas /disponibilidade já suportam admin sem filtro — rota extra para admin ver de um corretor específico
+r.get('/admin/corretores/:corretorId/disponibilidade', autenticar, apenasAdmin, wrap(async (req, res) => {
+  res.json(await svc.listarDisponibilidade(imobId(req), req.params.corretorId));
+}));
+r.post('/admin/corretores/:corretorId/disponibilidade', autenticar, apenasAdmin, wrap(async (req, res) => {
+  res.status(201).json(await svc.criarDisponibilidade(imobId(req), req.params.corretorId, req.body));
+}));
+r.delete('/admin/disponibilidade/:id', autenticar, apenasAdmin, wrap(async (req, res) => {
+  res.json(await svc.excluirDisponibilidade(imobId(req), req.params.id));
 }));
 
 // ── RANKING / DASHBOARD ───────────────────────────────────

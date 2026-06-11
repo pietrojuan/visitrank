@@ -104,22 +104,20 @@ export default function TrocarSenhaPage() {
           </div>
 
           {/* Indicador de força */}
-          {senhaNova.length > 0 && (
-            <div className="space-y-1">
-              <div className="flex gap-1">
-                {[1,2,3,4].map(n => (
-                  <div key={n} className={`flex-1 h-1 rounded-full transition-all ${
-                    senhaNova.length >= n * 2
-                      ? n <= 1 ? 'bg-red-400' : n <= 2 ? 'bg-yellow-400' : n <= 3 ? 'bg-blue-400' : 'bg-green-500'
-                      : 'bg-slate-100'
-                  }`} />
-                ))}
-              </div>
-              <p className="text-[11px] text-slate-400">
-                {senhaNova.length < 4 ? 'Muito fraca' : senhaNova.length < 6 ? 'Fraca' : senhaNova.length < 8 ? 'Razoável' : 'Forte'}
-              </p>
+          <div className="space-y-1">
+            <div className="flex gap-1">
+              {[1,2,3,4].map(n => (
+                <div key={n} className={`flex-1 h-1 rounded-full transition-all ${
+                  senhaNova.length > 0 && senhaNova.length >= n * 2
+                    ? n <= 1 ? 'bg-red-400' : n <= 2 ? 'bg-yellow-400' : n <= 3 ? 'bg-blue-400' : 'bg-green-500'
+                    : 'bg-slate-100'
+                }`} />
+              ))}
             </div>
-          )}
+            <p className="text-[11px] text-slate-400 h-4">
+              {senhaNova.length === 0 ? '' : senhaNova.length < 4 ? 'Muito fraca' : senhaNova.length < 6 ? 'Fraca' : senhaNova.length < 8 ? 'Razoável' : 'Forte'}
+            </p>
+          </div>
 
           {erro && (
             <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">{erro}</div>

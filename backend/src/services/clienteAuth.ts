@@ -2,6 +2,95 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { query } from '../database/db';
 
+// Atualizar perfil do cliente
+export const atualizarPerfilCliente = async (clienteId: string, d: { nome: string; telefone?: string }) => {
+  if (!d.nome?.trim()) throw new Error('Informe o nome.');
+  const r = await query(
+    `UPDATE cliente SET nome=$1, telefone=$2 WHERE id=$3 AND ativo=TRUE
+     RETURNING id, nome, email, telefone, imobiliaria_id, ativo, criado_em, primeiro_acesso`,
+    [d.nome.trim(), d.telefone || null, clienteId]
+  );
+  if (!r.rows[0]) throw new Error('Cliente não encontrado.');
+  return r.rows[0];
+};
+
+// Trocar senha do cliente
+export const trocarSenhaCliente = async (clienteId: string, senhaAtual: string, senhaNova: string) => {
+  if (senhaNova.length < 6) throw new Error('A nova senha deve ter ao menos 6 caracteres.');
+  const r = await query(`SELECT senha_hash FROM cliente WHERE id=$1 AND ativo=TRUE`, [clienteId]);
+  if (!r.rows[0]) throw new Error('Cliente não encontrado.');
+  if (!await bcrypt.compare(senhaAtual, r.rows[0].senha_hash)) throw new Error('Senha atual incorreta.');
+  const hash = await bcrypt.hash(senhaNova, 10);
+  await query(`UPDATE cliente SET senha_hash=$1 WHERE id=$2`, [hash, clienteId]);
+  return { ok: true };
+};
+
+// Registro próprio do cliente
+export const registrarCliente = async (imobId: string, d: { nome: string; email: string; senha: string; telefone?: string }) => {
+  if (!d.nome?.trim()) throw new Error('Informe seu nome.');
+  if (d.senha.length < 6) throw new Error('A senha deve ter pelo menos 6 caracteres.');
+  const exists = await query(
+    `SELECT id FROM cliente WHERE LOWER(email)=$1 AND imobiliaria_id=$2`,
+    [d.email.toLowerCase().trim(), imobId]
+  );
+  if (exists.rows[0]) throw new Error('Este email já está cadastrado.');
+  const hash = await bcrypt.hash(d.senha, 10);
+  const r = await query(
+    `INSERT INTO cliente (imobiliaria_id, nome, email, telefone, senha_hash, primeiro_acesso, ativo)
+     VALUES ($1,$2,$3,$4,$5,FALSE,TRUE) RETURNING *`,
+    [imobId, d.nome.trim(), d.email.toLowerCase().trim(), d.telefone || null, hash]
+  );
+  return gerarTokenCliente(r.rows[0]);
+};
+
+// Datas com disponibilidade em um mês (para colorir o calendário)
+export const datasDisponiveisMes = async (imobiliariaId: string, imovelId: string, mesInicio: string) => {
+  // mesInicio: 'YYYY-MM-01'
+  const r = await query(`
+    SELECT DISTINCT TO_CHAR(gs.day, 'YYYY-MM-DD') AS data
+    FROM generate_series(
+      GREATEST(CURRENT_DATE, $3::date),
+      (DATE_TRUNC('month', $3::date) + INTERVAL '1 month - 1 day')::date,
+      '1 day'::interval
+    ) AS gs(day)
+    WHERE EXISTS (
+      SELECT 1 FROM disponibilidade d
+      JOIN usuario u ON u.id = d.corretor_id AND u.ativo = TRUE
+      WHERE d.imobiliaria_id = $1
+        AND (
+          (d.recorrente = TRUE AND d.dia_semana = EXTRACT(DOW FROM gs.day)::int)
+          OR (d.recorrente = FALSE AND d.data_especifica = gs.day::date)
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM visita v
+          WHERE v.imobiliaria_id = $1
+            AND v.imovel_id = $2
+            AND DATE(v.data_visita) = gs.day::date
+            AND v.corretor_id = d.corretor_id
+            AND CAST(v.data_visita AS TIME) = d.hora_inicio::time
+            AND v.status NOT IN ('cancelada')
+        )
+    )
+    ORDER BY data
+  `, [imobiliariaId, imovelId, mesInicio]);
+  return r.rows.map((row: { data: string }) => row.data);
+};
+
+// Todos os imóveis da imobiliária, com flags por cliente
+export const todosImoveisCliente = async (clienteId: string, imobiliariaId: string) => {
+  const r = await query(
+    `SELECT i.id, i.titulo, i.descricao, i.bairro, i.cidade, i.preco, i.metragem, i.quartos, i.banheiros, i.vagas,
+            ARRAY(SELECT id FROM foto_imovel WHERE imovel_id=i.id ORDER BY ordem) AS foto_ids,
+            EXISTS(SELECT 1 FROM avaliacao_imovel WHERE imovel_id=i.id AND cliente_id=$1) AS ja_avaliado,
+            EXISTS(SELECT 1 FROM visita WHERE imovel_id=i.id AND cliente_id=$1 AND status != 'cancelada' AND data_visita <= NOW()) AS ja_liberado
+     FROM imovel i
+     WHERE i.imobiliaria_id=$2 AND i.ativo=TRUE
+     ORDER BY i.titulo`,
+    [clienteId, imobiliariaId]
+  );
+  return r.rows;
+};
+
 // Primeiro acesso: valida email + CPF e cria senha
 export const primeiroAcesso = async (email: string, cpf: string, novaSenha: string) => {
   if (novaSenha.length < 6) throw new Error('Senha deve ter ao menos 6 caracteres');
@@ -81,9 +170,9 @@ export const imoveisDoCliente = async (clienteId: string, imobiliariaId: string)
 
 // Detalhes do imóvel para avaliação
 export const detalheImovelCliente = async (imovelId: string, clienteId: string) => {
-  // Verifica acesso
+  // Verifica acesso: visita agendada e já passou a data/hora
   const acesso = await query(
-    `SELECT 1 FROM imovel_cliente WHERE imovel_id=$1 AND cliente_id=$2`,
+    `SELECT 1 FROM visita WHERE imovel_id=$1 AND cliente_id=$2 AND status != 'cancelada' AND data_visita <= NOW()`,
     [imovelId, clienteId]
   );
   if (!acesso.rows[0]) throw new Error('Acesso negado');
@@ -114,7 +203,7 @@ export const salvarAvaliacao = async (
   notasFixas: Record<string, number> = {}
 ) => {
   const acesso = await query(
-    `SELECT corretor_id FROM imovel_cliente WHERE imovel_id=$1 AND cliente_id=$2`,
+    `SELECT corretor_id FROM visita WHERE imovel_id=$1 AND cliente_id=$2 AND status != 'cancelada' AND data_visita <= NOW() ORDER BY data_visita DESC LIMIT 1`,
     [imovelId, clienteId]
   );
   if (!acesso.rows[0]) throw new Error('Acesso negado');
@@ -143,35 +232,21 @@ export const salvarAvaliacao = async (
     );
   }
 
-  // Gerencia visita: busca a mais recente agendada ou em aberto para este imovel+cliente
+  // Atualiza visita mais recente para realizada (se ainda agendada)
   const visitaExistente = await query(
-    `SELECT id, status, data_visita FROM visita
+    `SELECT id, status FROM visita
      WHERE imovel_id=$1 AND cliente_id=$2
      ORDER BY data_visita DESC LIMIT 1`,
     [imovelId, clienteId]
   );
 
   if (visitaExistente.rows[0]) {
-    const visita = visitaExistente.rows[0];
-    const dataVisita = new Date(visita.data_visita);
-    const agora = new Date();
-
-    if (visita.status === 'agendada' && dataVisita > agora) {
-      // Avaliação enviada ANTES da data agendada — aguarda confirmação do corretor
-      await query(
-        `UPDATE visita SET status='aguardando' WHERE id=$1`,
-        [visita.id]
-      );
-      return { ok: true, aguardando: true };
-    } else {
-      // Visita já passou ou já estava em outro estado: marca como realizada
-      await query(
-        `UPDATE visita SET status='realizada' WHERE id=$1 AND status != 'realizada'`,
-        [visita.id]
-      );
-    }
+    await query(
+      `UPDATE visita SET status='realizada' WHERE id=$1 AND status != 'realizada'`,
+      [visitaExistente.rows[0].id]
+    );
   } else {
-    // Sem visita: cria uma nova já como realizada com data = agora
+    // Sem visita agendada: cria uma já como realizada
     const token = require('crypto').randomBytes(32).toString('hex');
     await query(
       `INSERT INTO visita (imobiliaria_id, imovel_id, cliente_id, corretor_id, data_visita, qr_token, status)
@@ -180,6 +255,134 @@ export const salvarAvaliacao = async (
     );
   }
 
+  return { ok: true };
+};
+
+// Imóveis da imobiliária disponíveis para o cliente agendar visita
+export const imoveisParaAgendar = async (imobiliariaId: string) => {
+  const r = await query(
+    `SELECT i.id, i.titulo, i.bairro, i.cidade, i.preco, i.metragem, i.quartos, i.banheiros, i.vagas,
+            ARRAY(SELECT id FROM foto_imovel WHERE imovel_id=i.id ORDER BY ordem LIMIT 1) AS foto_ids
+     FROM imovel i WHERE i.imobiliaria_id=$1 AND i.ativo=TRUE ORDER BY i.titulo`,
+    [imobiliariaId]
+  );
+  return r.rows;
+};
+
+// Agendamento de visita pelo cliente
+export const agendarVisitaCliente = async (
+  imobiliariaId: string, imovelId: string, clienteId: string,
+  corretorId: string, dataHora: string
+) => {
+  // Verifica conflito: slot já ocupado
+  const conflito = await query(
+    `SELECT id FROM visita
+     WHERE imovel_id=$1 AND corretor_id=$2 AND DATE(data_visita)=DATE($3::timestamp)
+       AND CAST(data_visita AS TIME) = CAST($3::timestamp AS TIME)
+       AND status NOT IN ('cancelada')`,
+    [imovelId, corretorId, dataHora]
+  );
+  if (conflito.rows[0]) throw new Error('Este horário já foi agendado por outro cliente.');
+
+  // Verifica se corretor tem disponibilidade nesta data/hora
+  const dt = new Date(dataHora);
+  const diaSemana = dt.getDay();
+  const hora = dt.toTimeString().slice(0, 5);
+  const data = dataHora.slice(0, 10);
+  const disp = await query(
+    `SELECT id FROM disponibilidade
+     WHERE corretor_id=$1 AND imobiliaria_id=$2
+       AND hora_inicio <= $3::time AND hora_fim > $3::time
+       AND (
+         (recorrente=true AND dia_semana=$4)
+         OR (recorrente=false AND data_especifica=$5::date)
+       )`,
+    [corretorId, imobiliariaId, hora, diaSemana, data]
+  );
+  if (!disp.rows[0]) throw new Error('Corretor sem disponibilidade neste horário.');
+
+  // Libera imóvel para o cliente (imovel_cliente)
+  await query(
+    `INSERT INTO imovel_cliente (imovel_id, cliente_id, corretor_id)
+     VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+    [imovelId, clienteId, corretorId]
+  );
+
+  // Cria a visita
+  const r = await query(
+    `INSERT INTO visita (imobiliaria_id, imovel_id, cliente_id, corretor_id, data_visita, status)
+     VALUES ($1,$2,$3,$4,$5,'agendada') RETURNING *`,
+    [imobiliariaId, imovelId, clienteId, corretorId, dataHora]
+  );
+  return r.rows[0];
+};
+
+// Imóveis externos (cadastrados pelo próprio cliente)
+export const listarImoveisExternos = async (clienteId: string) => {
+  const r = await query(
+    `SELECT ie.*, ae.interesse, ae.criado_em AS avaliado_em,
+            COALESCE(ae.nota_localizacao,0)+COALESCE(ae.nota_preco,0)+COALESCE(ae.nota_estado,0)+
+            COALESCE(ae.nota_tamanho,0)+COALESCE(ae.nota_conforto,0) AS soma_notas
+     FROM imovel_externo ie
+     LEFT JOIN avaliacao_externa ae ON ae.imovel_externo_id = ie.id
+     WHERE ie.cliente_id=$1
+     ORDER BY ie.criado_em DESC`,
+    [clienteId]
+  );
+  return r.rows;
+};
+
+export const criarImovelExterno = async (clienteId: string, imobiliariaId: string, d: {
+  titulo: string; endereco?: string; bairro?: string; cidade?: string;
+  preco?: number; metragem?: number; quartos?: number; banheiros?: number; observacoes?: string;
+}) => {
+  const r = await query(
+    `INSERT INTO imovel_externo (cliente_id, imobiliaria_id, titulo, endereco, bairro, cidade, preco, metragem, quartos, banheiros, observacoes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+    [clienteId, imobiliariaId, d.titulo, d.endereco||null, d.bairro||null, d.cidade||null,
+     d.preco||null, d.metragem||null, d.quartos||null, d.banheiros||null, d.observacoes||null]
+  );
+  return r.rows[0];
+};
+
+export const editarImovelExterno = async (clienteId: string, id: string, d: Record<string, unknown>) => {
+  const r = await query(
+    `UPDATE imovel_externo SET titulo=$1, endereco=$2, bairro=$3, cidade=$4, preco=$5, metragem=$6,
+     quartos=$7, banheiros=$8, observacoes=$9
+     WHERE id=$10 AND cliente_id=$11 RETURNING *`,
+    [d.titulo, d.endereco||null, d.bairro||null, d.cidade||null, d.preco||null,
+     d.metragem||null, d.quartos||null, d.banheiros||null, d.observacoes||null, id, clienteId]
+  );
+  if (!r.rows[0]) throw new Error('Imóvel não encontrado');
+  return r.rows[0];
+};
+
+export const excluirImovelExterno = async (clienteId: string, id: string) => {
+  await query(`DELETE FROM imovel_externo WHERE id=$1 AND cliente_id=$2`, [id, clienteId]);
+  return { ok: true };
+};
+
+export const avaliarImovelExterno = async (clienteId: string, imovelExternoId: string, d: {
+  interesse: string; comentario?: string;
+  nota_localizacao?: number; nota_preco?: number; nota_estado?: number;
+  nota_tamanho?: number; nota_conforto?: number;
+}) => {
+  // Verifica que o imóvel pertence ao cliente
+  const acesso = await query(`SELECT id FROM imovel_externo WHERE id=$1 AND cliente_id=$2`, [imovelExternoId, clienteId]);
+  if (!acesso.rows[0]) throw new Error('Imóvel não encontrado');
+  await query(
+    `INSERT INTO avaliacao_externa (imovel_externo_id, cliente_id, interesse, comentario,
+       nota_localizacao, nota_preco, nota_estado, nota_tamanho, nota_conforto)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     ON CONFLICT (imovel_externo_id, cliente_id) DO UPDATE SET
+       interesse=EXCLUDED.interesse, comentario=EXCLUDED.comentario,
+       nota_localizacao=EXCLUDED.nota_localizacao, nota_preco=EXCLUDED.nota_preco,
+       nota_estado=EXCLUDED.nota_estado, nota_tamanho=EXCLUDED.nota_tamanho,
+       nota_conforto=EXCLUDED.nota_conforto`,
+    [imovelExternoId, clienteId, d.interesse, d.comentario||null,
+     d.nota_localizacao||null, d.nota_preco||null, d.nota_estado||null,
+     d.nota_tamanho||null, d.nota_conforto||null]
+  );
   return { ok: true };
 };
 

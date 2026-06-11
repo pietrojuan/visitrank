@@ -29,7 +29,7 @@ export default function AgendarVisitaPage() {
       .then(([im, cl, us, vis]) => {
         setImoveis(im.data);
         setClientes(cl.data);
-        setCorretores(us.data);
+        setCorretores((us.data as { id: string; nome: string; perfil: string }[]).filter(u => u.perfil === 'corretor'));
         setVisitas(vis.data);
       })
       .finally(() => setFetching(false));
@@ -86,7 +86,7 @@ export default function AgendarVisitaPage() {
 
   return (
     <div className="animate-fade-in max-w-lg">
-      <PageHeader title="Agendar Visita" subtitle="Registre e gere o QR Code"
+      <PageHeader title="Agendar Visita" subtitle="Registre uma visita para um cliente"
         action={<button onClick={() => navigate('/visitas')} className="btn-secondary">← Voltar</button>} />
 
       {!agendado && (
@@ -167,8 +167,7 @@ export default function AgendarVisitaPage() {
               <div className="w-14 h-14 rounded-full bg-green-50 flex items-center justify-center text-2xl mb-4">✅</div>
               <h3 className="font-display font-bold text-slate-900 text-lg mb-1">Visita agendada!</h3>
               <p className="text-sm text-slate-500 leading-relaxed">
-                A visita foi registrada com sucesso.<br />
-                O QR Code está disponível na lista de visitas.
+                A visita foi registrada com sucesso.
               </p>
             </div>
             <div className="flex border-t border-slate-100">

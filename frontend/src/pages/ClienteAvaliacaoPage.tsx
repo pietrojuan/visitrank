@@ -6,12 +6,40 @@ interface Comodo { id: string; nome: string; }
 interface NotaComodo { comodo_id: string; nota: number; comentario: string; }
 
 const CRITERIOS_FIXOS = [
-  { key: 'nota_localizacao', label: 'Localização',           icon: '📍' },
-  { key: 'nota_preco',       label: 'Preço',                 icon: '💰' },
-  { key: 'nota_estado',      label: 'Estado de Conservação', icon: '🔧' },
-  { key: 'nota_tamanho',     label: 'Tamanho',               icon: '📐' },
-  { key: 'nota_conforto',    label: 'Conforto',              icon: '🛋️' },
+  { key: 'nota_localizacao', label: 'Localização', icon: '📍' },
+  { key: 'nota_preco',       label: 'Preço',        icon: '💰' },
+  { key: 'nota_estado',      label: 'Conservação',  icon: '🔧' },
+  { key: 'nota_tamanho',     label: 'Tamanho',      icon: '📐' },
+  { key: 'nota_conforto',    label: 'Conforto',     icon: '🛋️' },
 ] as const;
+
+const INTERESSE_OPTS = [
+  { val: 'SIM',    label: 'Tenho interesse', emoji: '✅', active: 'bg-green-500 border-green-400 text-white', idle: 'border-white/10 text-white/50 hover:border-white/20 hover:bg-white/5' },
+  { val: 'TALVEZ', label: 'Talvez',          emoji: '🤷', active: 'bg-yellow-500 border-yellow-400 text-white', idle: 'border-white/10 text-white/50 hover:border-white/20 hover:bg-white/5' },
+  { val: 'NAO',    label: 'Sem interesse',   emoji: '❌', active: 'bg-red-500 border-red-400 text-white', idle: 'border-white/10 text-white/50 hover:border-white/20 hover:bg-white/5' },
+] as const;
+
+function StarRow({ label, icon, value, onChange }: { label: string; icon: string; value: number; onChange: (n: number) => void }) {
+  const [hover, setHover] = useState(0);
+  const display = hover || value;
+  return (
+    <div className="flex items-center gap-3">
+      <div className="w-32 shrink-0">
+        <p className="text-sm font-medium text-white/70">{icon} {label}</p>
+      </div>
+      <div className="flex gap-1">
+        {[1,2,3,4,5].map(s => (
+          <button key={s} type="button" onClick={() => onChange(s)}
+            onMouseEnter={() => setHover(s)} onMouseLeave={() => setHover(0)}
+            className={`text-2xl transition-all duration-75 hover:scale-110 ${s <= display ? 'text-yellow-400 drop-shadow-sm' : 'text-white/15'}`}>
+            ★
+          </button>
+        ))}
+      </div>
+      {value > 0 && <span className="text-xs font-semibold text-white/30 w-4">{value}</span>}
+    </div>
+  );
+}
 
 export default function ClienteAvaliacaoPage() {
   const { id } = useParams<{ id: string }>();
@@ -36,19 +64,14 @@ export default function ClienteAvaliacaoPage() {
     clienteAuthApi.detalheImovel(id!).then(r => {
       setImovel(r.data.imovel);
       setComodos(r.data.comodos || []);
-      fetch(`/api/imoveis/${id}/fotos`).then(res => res.json()).then((ft: { id: string }[]) => {
-        setFotoIds(ft.map(f => f.id));
-      });
-      // Preenche avaliações existentes
+      fetch(`/api/imoveis/${id}/fotos`).then(res => res.json()).then((ft: { id: string }[]) => setFotoIds(ft.map(f => f.id)));
       const av = r.data.avaliacao_existente;
       if (av) {
         setEditando(true);
         setInteresse(av.interesse || '');
         setComentario(av.comentario || '');
         const nf: Record<string, number> = {};
-        for (const c of CRITERIOS_FIXOS) {
-          if (av[c.key]) nf[c.key] = av[c.key];
-        }
+        for (const c of CRITERIOS_FIXOS) { if (av[c.key]) nf[c.key] = av[c.key]; }
         setNotasFixas(nf);
       }
       const notasExist: Record<string, NotaComodo> = {};
@@ -56,8 +79,7 @@ export default function ClienteAvaliacaoPage() {
         notasExist[n.comodo_id] = { comodo_id: n.comodo_id, nota: n.nota, comentario: n.comentario || '' };
       }
       setNotasComodo(notasExist);
-    }).catch(() => navigate('/cliente/imoveis'))
-      .finally(() => setLoading(false));
+    }).catch(() => navigate('/cliente/imoveis')).finally(() => setLoading(false));
   }, [id]);
 
   const setNota = (comodoId: string, nota: number) =>
@@ -76,129 +98,143 @@ export default function ClienteAvaliacaoPage() {
     }
     setSending(true); setErro('');
     try {
-      await clienteAuthApi.avaliar(id!, {
-        interesse,
-        comentario,
-        notas_fixas: notasFixas,
-        avaliacoes: Object.values(notasComodo).filter(n => n.nota > 0),
-      });
+      await clienteAuthApi.avaliar(id!, { interesse, comentario, notas_fixas: notasFixas, avaliacoes: Object.values(notasComodo).filter(n => n.nota > 0) });
       setSucesso(true);
     } catch (err: unknown) {
       setErro((err as { response?: { data?: { erro?: string } } })?.response?.data?.erro || 'Erro ao enviar avaliação.');
     } finally { setSending(false); }
   };
 
+  const totalFixos = CRITERIOS_FIXOS.length;
+  const preenchidosFixos = CRITERIOS_FIXOS.filter(c => (notasFixas[c.key] || 0) > 0).length;
+  const preenchidosComodos = comodos.filter(c => notasComodo[c.id]?.nota > 0).length;
+  const totalItens = totalFixos + comodos.length + 1;
+  const preenchidos = preenchidosFixos + preenchidosComodos + (interesse ? 1 : 0);
+  const progresso = totalItens > 0 ? Math.round((preenchidos / totalItens) * 100) : 0;
+  const pronto = preenchidosFixos === totalFixos && preenchidosComodos === comodos.length && !!interesse;
+
+  const titulo = String(imovel?.titulo || '');
+
   if (loading) return (
-    <div className="min-h-screen bg-surface-50 flex items-center justify-center">
-      <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-brand-950 to-brand-900 bg-fixed flex items-center justify-center">
+      <div className="w-8 h-8 border-2 border-brand-400 border-t-transparent rounded-full animate-spin" />
     </div>
   );
 
   if (sucesso) return (
-    <div className="min-h-screen bg-gradient-to-br from-brand-950 to-surface-950 flex items-center justify-center p-4">
-      <div className="text-center animate-fade-in">
-        <div className="text-6xl mb-5">{editando ? '✏️' : '🎉'}</div>
-        <h2 className="font-display font-bold text-white text-2xl mb-3">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-brand-950 to-brand-900 bg-fixed flex items-center justify-center p-4">
+      <div className="text-center animate-fade-in max-w-sm">
+        <div className="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-6 text-4xl">
+          {editando ? '✏️' : '🎉'}
+        </div>
+        <h2 className="font-display font-bold text-white text-2xl mb-2">
           {editando ? 'Avaliação atualizada!' : 'Avaliação enviada!'}
         </h2>
-        <p className="text-slate-300 text-sm mb-6">
-          {editando ? 'Suas alterações foram salvas com sucesso.' : 'Obrigado por avaliar este imóvel.'}
+        <p className="text-white/50 text-sm mb-8 leading-relaxed">
+          {editando ? 'Suas alterações foram salvas. A imobiliária irá revisá-las em breve.' : 'Obrigado pelo seu feedback! A imobiliária irá revisá-lo em breve.'}
         </p>
-        <button onClick={() => navigate(editando ? '/cliente/imoveis?aba=avaliacoes' : '/cliente/imoveis')} className="px-6 py-3 rounded-xl bg-brand-600 text-white font-semibold text-sm">
-          {editando ? 'Voltar às avaliações' : 'Ver outros imóveis'}
+        <button onClick={() => navigate(editando ? '/cliente/imoveis?aba=avaliacoes' : '/cliente/imoveis')}
+          className="px-8 py-3 rounded-xl bg-white text-brand-800 font-display font-bold text-sm hover:bg-slate-100 transition-colors">
+          {editando ? 'Ver minhas avaliações' : 'Voltar ao início'}
         </button>
       </div>
     </div>
   );
 
-  const titulo    = String(imovel?.titulo || '');
-  const descricao = String(imovel?.descricao || '');
-  const todosFixos = CRITERIOS_FIXOS.every(c => (notasFixas[c.key] || 0) > 0);
-  const todosComodos = comodos.length === 0 || comodos.every(c => notasComodo[c.id]?.nota > 0);
-
   return (
-    <div className="min-h-screen bg-surface-50 pb-8">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-brand-950 to-brand-900 bg-fixed pb-12">
+
+      {/* ── HEADER ── */}
+      <header className="sticky top-0 z-10 bg-black/30 backdrop-blur-md border-b border-white/10">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
-          <button onClick={() => navigate('/cliente/imoveis')} className="text-slate-400 hover:text-slate-700 transition-colors">←</button>
-          <p className="font-display font-semibold text-slate-900 text-sm truncate">{titulo}</p>
+          <button onClick={() => navigate('/cliente/imoveis')}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors">
+            ←
+          </button>
+          <div className="flex-1 min-w-0">
+            <p className="font-display font-semibold text-white text-sm truncate">{titulo}</p>
+            <p className="text-[10px] text-white/40">{editando ? 'Editando avaliação' : 'Nova avaliação'}</p>
+          </div>
+          {/* Progresso */}
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="w-20 h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full bg-brand-400 rounded-full transition-all duration-500" style={{ width: `${progresso}%` }} />
+            </div>
+            <span className="text-[10px] text-white/40 font-medium w-7">{progresso}%</span>
+          </div>
         </div>
       </header>
 
-      <div className="max-w-2xl mx-auto px-4 pt-4 space-y-4">
-        {/* Carrossel */}
+      <div className="max-w-2xl mx-auto px-4 pt-5 space-y-4">
+
+        {/* ── FOTO ── */}
         {fotoIds.length > 0 && (
-          <div className="relative h-64 rounded-2xl overflow-hidden bg-slate-100">
+          <div className="relative h-52 rounded-2xl overflow-hidden shadow-xl">
             <img src={fotoUrl(fotoIds[fotoAtual])} alt="" className="w-full h-full object-cover" />
-            {fotoIds.length > 1 && (
-              <>
-                <button onClick={() => setFotoAtual(p => (p - 1 + fotoIds.length) % fotoIds.length)}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/40 hover:bg-black/60 text-white rounded-full flex items-center justify-center text-lg">‹</button>
-                <button onClick={() => setFotoAtual(p => (p + 1) % fotoIds.length)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/40 hover:bg-black/60 text-white rounded-full flex items-center justify-center text-lg">›</button>
-                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
-                  {fotoIds.map((_, i) => (
-                    <button key={i} onClick={() => setFotoAtual(i)}
-                      className={`h-1.5 rounded-full transition-all ${i === fotoAtual ? 'bg-white w-5' : 'bg-white/50 w-1.5'}`} />
-                  ))}
-                </div>
-                <span className="absolute top-3 right-3 bg-black/40 text-white text-xs px-2 py-1 rounded-full">{fotoAtual + 1}/{fotoIds.length}</span>
-              </>
-            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+            {fotoIds.length > 1 && (<>
+              <button onClick={() => setFotoAtual(p => (p - 1 + fotoIds.length) % fotoIds.length)}
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/40 hover:bg-black/60 text-white rounded-full flex items-center justify-center backdrop-blur-sm text-lg">←</button>
+              <button onClick={() => setFotoAtual(p => (p + 1) % fotoIds.length)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/40 hover:bg-black/60 text-white rounded-full flex items-center justify-center backdrop-blur-sm text-lg">→</button>
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
+                {fotoIds.map((_, i) => (
+                  <button key={i} onClick={() => setFotoAtual(i)}
+                    className={`h-1.5 rounded-full transition-all ${i === fotoAtual ? 'bg-white w-5' : 'bg-white/40 w-1.5'}`} />
+                ))}
+              </div>
+            </>)}
           </div>
         )}
 
-        {descricao && <p className="text-sm text-slate-600">{descricao}</p>}
-
         <form onSubmit={handleSubmit} className="space-y-4">
 
-          {/* ── Critérios fixos ── */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5">
-            <h3 className="font-display font-semibold text-slate-900 mb-4">Critérios Gerais</h3>
-            <div className="space-y-5">
-              {CRITERIOS_FIXOS.map(c => {
-                const nota = notasFixas[c.key] || 0;
-                return (
-                  <div key={c.key}>
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="font-medium text-slate-800 text-sm">{c.icon} {c.label}</p>
-                      {nota > 0 && <span className="text-yellow-500 text-xs font-mono">{nota}/5</span>}
-                    </div>
-                    <div className="flex gap-1">
-                      {[1,2,3,4,5].map(star => (
-                        <button key={star} type="button"
-                          onClick={() => setNotasFixas(p => ({ ...p, [c.key]: star }))}
-                          className={`text-3xl transition-all hover:scale-110 ${star <= nota ? 'text-yellow-400' : 'text-slate-200'}`}>★</button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
+          {/* ── CRITÉRIOS GERAIS ── */}
+          <div className="bg-white/8 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-white/10 flex items-center justify-between">
+              <h3 className="font-display font-semibold text-white">Critérios Gerais</h3>
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${preenchidosFixos === totalFixos ? 'bg-green-500/20 text-green-400' : 'bg-white/10 text-white/40'}`}>
+                {preenchidosFixos}/{totalFixos}
+              </span>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              {CRITERIOS_FIXOS.map(c => (
+                <StarRow key={c.key} label={c.label} icon={c.icon}
+                  value={notasFixas[c.key] || 0}
+                  onChange={v => setNotasFixas(p => ({ ...p, [c.key]: v }))} />
+              ))}
             </div>
           </div>
 
-          {/* ── Cômodos customizados ── */}
+          {/* ── CÔMODOS ── */}
           {comodos.length > 0 && (
-            <div className="bg-white rounded-2xl border border-slate-200 p-5">
-              <h3 className="font-display font-semibold text-slate-900 mb-5">Itens do Imóvel</h3>
-              <div className="space-y-6">
+            <div className="bg-white/8 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-white/10 flex items-center justify-between">
+                <h3 className="font-display font-semibold text-white">Itens do Imóvel</h3>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${preenchidosComodos === comodos.length ? 'bg-green-500/20 text-green-400' : 'bg-white/10 text-white/40'}`}>
+                  {preenchidosComodos}/{comodos.length}
+                </span>
+              </div>
+              <div className="divide-y divide-white/5">
                 {comodos.map(c => {
                   const av = notasComodo[c.id];
+                  const avaliado = av?.nota > 0;
                   return (
-                    <div key={c.id} className="pb-5 border-b border-slate-100 last:border-0 last:pb-0">
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="font-medium text-slate-800 text-sm">{c.nome}</p>
-                        {av?.nota > 0 && <span className="text-yellow-500 text-xs font-mono">{av.nota}/5</span>}
+                    <div key={c.id} className={`px-5 py-4 transition-colors ${avaliado ? 'bg-green-500/5' : ''}`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${avaliado ? 'bg-green-400' : 'bg-white/20'}`} />
+                        <p className="font-medium text-white/80 text-sm">{c.nome}</p>
                       </div>
                       <div className="flex gap-1 mb-3">
-                        {[1,2,3,4,5].map(star => (
-                          <button key={star} type="button" onClick={() => setNota(c.id, star)}
-                            className={`text-3xl transition-all hover:scale-110 ${star <= (av?.nota || 0) ? 'text-yellow-400' : 'text-slate-200'}`}>★</button>
+                        {[1,2,3,4,5].map(s => (
+                          <button key={s} type="button" onClick={() => setNota(c.id, s)}
+                            className={`text-2xl transition-all hover:scale-110 ${s <= (av?.nota || 0) ? 'text-yellow-400' : 'text-white/15'}`}>★</button>
                         ))}
+                        {av?.nota > 0 && <span className="text-xs text-white/30 self-center ml-1">{av.nota}/5</span>}
                       </div>
                       <textarea value={av?.comentario || ''} onChange={e => setComentarioComodo(c.id, e.target.value)}
-                        placeholder="Comentário sobre este item (opcional)..."
-                        className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none h-14 placeholder:text-slate-300" />
+                        placeholder="Observação (opcional)..."
+                        className="w-full px-3 py-2 rounded-xl border border-white/10 bg-white/5 text-sm text-white/80 focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none h-12 placeholder:text-white/20" />
                     </div>
                   );
                 })}
@@ -206,37 +242,56 @@ export default function ClienteAvaliacaoPage() {
             </div>
           )}
 
-          {/* ── Interesse + Comentário geral ── */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5">
-            <h3 className="font-display font-semibold text-slate-900 mb-3">Você tem interesse neste imóvel?</h3>
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              {([['SIM', '✅ Sim'], ['TALVEZ', '🤷 Talvez'], ['NAO', '❌ Não']] as const).map(([val, label]) => (
-                <button key={val} type="button" onClick={() => setInteresse(val)}
-                  className={`py-3 rounded-xl text-sm font-medium transition-all ${interesse === val ? 'bg-brand-600 text-white shadow-lg' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'}`}>
-                  {label}
-                </button>
-              ))}
+          {/* ── INTERESSE ── */}
+          <div className="bg-white/8 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-white/10">
+              <h3 className="font-display font-semibold text-white">Você tem interesse neste imóvel?</h3>
             </div>
-            <textarea value={comentario} onChange={e => setComentario(e.target.value)}
-              placeholder="Comentário geral sobre o imóvel (opcional)..."
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none h-20 placeholder:text-slate-300" />
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                {INTERESSE_OPTS.map(opt => {
+                  const ativo = interesse === opt.val;
+                  return (
+                    <button key={opt.val} type="button" onClick={() => setInteresse(opt.val)}
+                      className={`flex flex-col items-center gap-1.5 py-3.5 rounded-xl border-2 text-sm font-medium transition-all ${ativo ? opt.active + ' shadow-lg' : opt.idle}`}>
+                      <span className="text-2xl">{opt.emoji}</span>
+                      <span className="text-xs">{opt.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div>
+                <label className="text-xs font-medium text-white/40 block mb-1.5">Comentário geral <span className="font-normal">(opcional)</span></label>
+                <textarea value={comentario} onChange={e => setComentario(e.target.value)}
+                  placeholder="O que você achou do imóvel no geral?"
+                  className="w-full px-3 py-2.5 rounded-xl border border-white/10 bg-white/5 text-sm text-white/80 focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none h-20 placeholder:text-white/20" />
+              </div>
+            </div>
           </div>
 
-          {(!todosFixos || !todosComodos || !interesse) && (
-            <p className="text-yellow-600 text-xs text-center">
-              {!todosFixos ? 'Avalie todos os critérios gerais.' : ''}
-              {!todosComodos ? ' Avalie todos os itens do imóvel.' : ''}
-              {!interesse ? ' Indique seu interesse.' : ''}
+          {/* Erro */}
+          {erro && (
+            <div className="flex items-center gap-2.5 bg-red-500/15 border border-red-500/30 text-red-300 text-sm px-4 py-3 rounded-xl">
+              <span>⚠️</span><span>{erro}</span>
+            </div>
+          )}
+
+          {!pronto && !erro && preenchidos > 0 && (
+            <p className="text-center text-xs text-white/30">
+              {!interesse ? 'Indique seu interesse para finalizar' : 'Avalie todos os itens para continuar'}
             </p>
           )}
 
-          {erro && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl">{erro}</div>
-          )}
-
-          <button type="submit" disabled={sending || !todosFixos || !todosComodos || !interesse}
-            className="w-full py-4 rounded-2xl bg-brand-600 hover:bg-brand-500 text-white font-display font-semibold transition-all shadow-lg disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]">
-            {sending ? 'Salvando...' : editando ? 'Atualizar Avaliação' : 'Enviar Avaliação'}
+          <button type="submit" disabled={sending || !pronto}
+            className={`w-full py-4 rounded-2xl font-display font-bold text-base transition-all active:scale-[0.98] ${
+              pronto ? 'bg-brand-500 hover:bg-brand-400 text-white shadow-lg shadow-brand-900/50' : 'bg-white/10 text-white/30 cursor-not-allowed'
+            }`}>
+            {sending ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Salvando...
+              </span>
+            ) : editando ? '✓ Atualizar Avaliação' : '✓ Enviar Avaliação'}
           </button>
         </form>
       </div>
