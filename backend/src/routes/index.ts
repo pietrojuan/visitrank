@@ -38,9 +38,10 @@ r.put('/auth/senha', autenticar, wrap(async (req, res) => {
 
 // ── AUTH CLIENTE ──────────────────────────────────────────
 r.post('/cliente/registrar', wrap(async (req, res) => {
-  const { imobiliaria_id, nome, email, senha, telefone } = req.body;
+  const { imobiliaria_id, nome, email, senha, telefone, aceite_termos } = req.body;
   if (!imobiliaria_id) throw new Error('Selecione a imobiliária.');
-  res.status(201).json(await clienteAuth.registrarCliente(imobiliaria_id, { nome, email, senha, telefone }));
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || undefined;
+  res.status(201).json(await clienteAuth.registrarCliente(imobiliaria_id, { nome, email, senha, telefone, aceite_termos }, ip));
 }));
 r.post('/cliente/primeiro-acesso', wrap(async (req, res) => {
   res.json(await clienteAuth.primeiroAcesso(req.body.email, req.body.cpf, req.body.senha));

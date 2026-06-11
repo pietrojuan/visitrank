@@ -23,6 +23,7 @@ export default function LoginPage() {
   const [regSenhaConf, setRegSenhaConf] = useState('');
   const [regImobId, setRegImobId] = useState('');
   const [imobiliarias, setImobiliarias] = useState<Imobiliaria[]>([]);
+  const [regAceite, setRegAceite] = useState(false);
 
   const [erro, setErro] = useState('');
   const [loading, setLoading] = useState(false);
@@ -62,6 +63,7 @@ export default function LoginPage() {
     if (regSenha !== regSenhaConf) { setErro('As senhas não conferem.'); return; }
     if (regSenha.length < 6) { setErro('A senha deve ter ao menos 6 caracteres.'); return; }
     if (!regImobId) { setErro('Selecione a imobiliária.'); return; }
+    if (!regAceite) { setErro('Você precisa aceitar os Termos de Uso e a Política de Privacidade para criar sua conta.'); return; }
     setLoading(true);
     try {
       const r = await clienteAuthApi.registrar({
@@ -70,6 +72,7 @@ export default function LoginPage() {
         email: regEmail.trim(),
         senha: regSenha,
         telefone: regTelefone || undefined,
+        aceite_termos: true,
       });
       localStorage.setItem('vr_cli_token', r.data.token);
       localStorage.setItem('vr_cliente', JSON.stringify(r.data.cliente));
@@ -184,23 +187,39 @@ export default function LoginPage() {
                 <input type="password" value={regSenhaConf} onChange={e => setRegSenhaConf(e.target.value)} required
                   className={inputCls} placeholder="••••••••" />
               </div>
+              {/* Checkbox de consentimento LGPD */}
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <div className="mt-0.5 shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={regAceite}
+                    onChange={e => setRegAceite(e.target.checked)}
+                    className="sr-only"
+                  />
+                  <div onClick={() => setRegAceite(v => !v)}
+                    className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all cursor-pointer ${regAceite ? 'bg-brand-600 border-brand-600' : 'bg-transparent border-white/30 group-hover:border-white/50'}`}>
+                    {regAceite && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 10 10"><path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  </div>
+                </div>
+                <span className="text-xs text-slate-400 leading-relaxed">
+                  Li e aceito os{' '}
+                  <Link to="/termos" target="_blank" className="text-brand-400 hover:underline font-medium">Termos de Uso</Link>
+                  {' '}e a{' '}
+                  <Link to="/privacidade" target="_blank" className="text-brand-400 hover:underline font-medium">Política de Privacidade</Link>
+                  , incluindo o tratamento dos meus dados pessoais conforme a LGPD (Lei nº 13.709/2018). <span className="text-red-400">*</span>
+                </span>
+              </label>
               {erro && (
                 <div className="text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5">
                   {erro}
                 </div>
               )}
-              <button type="submit" disabled={loading}
+              <button type="submit" disabled={loading || !regAceite}
                 className="w-full py-3 rounded-lg bg-brand-600 hover:bg-brand-500 text-white font-display font-semibold text-sm transition-all shadow-lg disabled:opacity-60 active:scale-[0.98]">
                 {loading ? 'Criando conta...' : 'Criar Conta'}
               </button>
               <p className="text-center text-slate-500 text-xs pt-1">
                 O cadastro é apenas para clientes.<br />Corretores e admins são criados pelo administrador.
-              </p>
-              <p className="text-center text-slate-600 text-[11px] leading-relaxed">
-                Ao criar sua conta, você concorda com os nossos{' '}
-                <Link to="/termos" className="text-brand-400 hover:underline">Termos de Uso</Link>
-                {' '}e{' '}
-                <Link to="/privacidade" className="text-brand-400 hover:underline">Política de Privacidade</Link>.
               </p>
             </form>
           )}

@@ -26,9 +26,10 @@ export const trocarSenhaCliente = async (clienteId: string, senhaAtual: string, 
 };
 
 // Registro próprio do cliente
-export const registrarCliente = async (imobId: string, d: { nome: string; email: string; senha: string; telefone?: string }) => {
+export const registrarCliente = async (imobId: string, d: { nome: string; email: string; senha: string; telefone?: string; aceite_termos?: boolean }, ip?: string) => {
   if (!d.nome?.trim()) throw new Error('Informe seu nome.');
   if (d.senha.length < 6) throw new Error('A senha deve ter pelo menos 6 caracteres.');
+  if (!d.aceite_termos) throw new Error('Você precisa aceitar os Termos de Uso e a Política de Privacidade para continuar.');
   const exists = await query(
     `SELECT id FROM cliente WHERE LOWER(email)=$1 AND imobiliaria_id=$2`,
     [d.email.toLowerCase().trim(), imobId]
@@ -36,9 +37,9 @@ export const registrarCliente = async (imobId: string, d: { nome: string; email:
   if (exists.rows[0]) throw new Error('Este email já está cadastrado.');
   const hash = await bcrypt.hash(d.senha, 10);
   const r = await query(
-    `INSERT INTO cliente (imobiliaria_id, nome, email, telefone, senha_hash, primeiro_acesso, ativo)
-     VALUES ($1,$2,$3,$4,$5,FALSE,TRUE) RETURNING *`,
-    [imobId, d.nome.trim(), d.email.toLowerCase().trim(), d.telefone || null, hash]
+    `INSERT INTO cliente (imobiliaria_id, nome, email, telefone, senha_hash, primeiro_acesso, ativo, aceite_termos_em, aceite_termos_ip)
+     VALUES ($1,$2,$3,$4,$5,FALSE,TRUE,NOW(),$6) RETURNING *`,
+    [imobId, d.nome.trim(), d.email.toLowerCase().trim(), d.telefone || null, hash, ip || null]
   );
   return gerarTokenCliente(r.rows[0]);
 };
