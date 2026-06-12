@@ -83,7 +83,8 @@ export const todosImoveisCliente = async (clienteId: string, imobiliariaId: stri
     `SELECT i.id, i.titulo, i.descricao, i.bairro, i.cidade, i.preco, i.metragem, i.quartos, i.banheiros, i.vagas,
             ARRAY(SELECT id FROM foto_imovel WHERE imovel_id=i.id ORDER BY ordem) AS foto_ids,
             EXISTS(SELECT 1 FROM avaliacao_imovel WHERE imovel_id=i.id AND cliente_id=$1) AS ja_avaliado,
-            EXISTS(SELECT 1 FROM visita WHERE imovel_id=i.id AND cliente_id=$1 AND status != 'cancelada' AND data_visita <= NOW()) AS ja_liberado
+            EXISTS(SELECT 1 FROM visita WHERE imovel_id=i.id AND cliente_id=$1 AND status != 'cancelada' AND data_visita <= NOW()) AS ja_liberado,
+            EXISTS(SELECT 1 FROM visita WHERE imovel_id=i.id AND cliente_id=$1 AND status='agendada' AND data_visita > NOW()) AS tem_agendamento
      FROM imovel i
      WHERE i.imobiliaria_id=$2 AND i.ativo=TRUE
      ORDER BY i.titulo`,

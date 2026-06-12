@@ -382,7 +382,7 @@ function AbaExternos() {
 interface ImovelCliente {
   id: string; titulo: string; descricao?: string; bairro?: string; cidade?: string;
   preco?: number; metragem?: number; quartos?: number; banheiros?: number; vagas?: number;
-  foto_ids: string[]; ja_avaliado: boolean; ja_liberado: boolean;
+  foto_ids: string[]; ja_avaliado: boolean; ja_liberado: boolean; tem_agendamento: boolean;
 }
 interface MinhaAvaliacao {
   id: string; imovel_id: string; imovel_titulo: string; imovel_preco?: number; bairro?: string; cidade?: string;
@@ -624,11 +624,14 @@ function ModalVerImovel({ imovel, onAgendar, onAvaliar, onClose }: { imovel: Imo
         </div>
         <div className="px-5 py-4 border-t border-slate-100 shrink-0 flex gap-2">
           <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Fechar</button>
-          {!imovel.ja_avaliado && !imovel.ja_liberado && onAgendar && (
+          {!imovel.ja_avaliado && !imovel.ja_liberado && !imovel.tem_agendamento && onAgendar && (
             <button onClick={() => { onClose(); onAgendar(); }} className="flex-1 py-3 rounded-xl bg-brand-600 text-white font-display font-semibold text-sm hover:bg-brand-500">📅 Agendar</button>
           )}
+          {imovel.tem_agendamento && !imovel.ja_liberado && !imovel.ja_avaliado && (
+            <span className="flex-1 py-3 text-center text-brand-700 text-sm font-semibold">🗓️ Visita agendada</span>
+          )}
           {imovel.ja_liberado && !imovel.ja_avaliado && onAvaliar && (
-            <button onClick={() => { onClose(); onAvaliar(); }} className="flex-1 py-3 rounded-xl bg-brand-600 text-white font-display font-semibold text-sm hover:bg-brand-500">⭐ Avaliar</button>
+            <button onClick={() => { onClose(); onAvaliar(); }} className="flex-1 py-3 rounded-xl bg-amber-500 text-white font-display font-semibold text-sm hover:bg-amber-400">⭐ Avaliar agora</button>
           )}
         </div>
       </div>
@@ -663,8 +666,10 @@ function AbaImoveis({ imoveis, loading, onAvaliar, onAtualizar }: { imoveis: Imo
           const statusBadge = im.ja_avaliado
             ? <span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0">✅ Avaliado</span>
             : im.ja_liberado
-              ? <span className="bg-brand-100 text-brand-700 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0">🗓️ Agendado</span>
-              : <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0">🏠 Disponível</span>;
+              ? <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0">⭐ Avaliar agora</span>
+              : im.tem_agendamento
+                ? <span className="bg-brand-100 text-brand-700 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0">🗓️ Agendado</span>
+                : <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0">🏠 Disponível</span>;
 
           const actionBtn = im.ja_avaliado ? (
             <button onClick={() => onAvaliar(im.id)}
@@ -673,9 +678,11 @@ function AbaImoveis({ imoveis, loading, onAvaliar, onAtualizar }: { imoveis: Imo
             </button>
           ) : im.ja_liberado ? (
             <button onClick={() => onAvaliar(im.id)}
-              className="shrink-0 px-3 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-display font-semibold text-xs transition-all active:scale-95">
+              className="shrink-0 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-display font-semibold text-xs transition-all active:scale-95">
               ⭐ Avaliar
             </button>
+          ) : im.tem_agendamento ? (
+            <span className="shrink-0 px-3 py-2 text-brand-600 text-xs font-semibold">Aguardando visita</span>
           ) : (
             <button onClick={() => setAgendando(im)}
               className="shrink-0 px-3 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-display font-semibold text-xs transition-all active:scale-95">
@@ -986,6 +993,7 @@ export default function ClienteImoveisPage() {
     }).catch(() => {});
   };
   useEffect(() => { carregarImoveis(); carregarAgendados(); }, []);
+  useEffect(() => { if (aba === 'imoveis') { carregarImoveis(); carregarAgendados(); } }, [aba]);
 
   const handleLogout = () => {
     localStorage.removeItem('vr_cli_token');
