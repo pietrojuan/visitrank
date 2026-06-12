@@ -133,9 +133,9 @@ export default function ClienteAvaliacaoPage() {
         <p className="text-white/50 text-sm mb-8 leading-relaxed">
           {editando ? 'Suas alterações foram salvas. A imobiliária irá revisá-las em breve.' : 'Obrigado pelo seu feedback! A imobiliária irá revisá-lo em breve.'}
         </p>
-        <button onClick={() => navigate(editando ? '/cliente/imoveis?aba=avaliacoes' : '/cliente/imoveis')}
+        <button onClick={() => navigate('/cliente/imoveis?aba=avaliacoes')}
           className="px-8 py-3 rounded-xl bg-white text-brand-800 font-display font-bold text-sm hover:bg-slate-100 transition-colors">
-          {editando ? 'Ver minhas avaliações' : 'Voltar ao início'}
+          Ver minhas avaliações
         </button>
       </div>
     </div>
