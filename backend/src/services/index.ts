@@ -502,12 +502,15 @@ export const moderarAvaliacao = async (imobId: string, avaliacaoId: string, acao
 export const getRanking = async (imobId: string) => {
   const r = await query(`
     WITH avals AS (
-      SELECT v.imovel_id,
-        COUNT(a.id)::float AS n,
-        AVG((a.nota_localizacao*2.0+a.nota_preco*2.5+a.nota_estado*1.5+a.nota_tamanho*1.5+a.nota_conforto*2.5)/10.0) AS r,
-        AVG(CASE a.interesse WHEN 'SIM' THEN 1.0 WHEN 'TALVEZ' THEN 0.5 ELSE 0 END) AS interesse,
-        SUM(CASE WHEN (a.nota_localizacao+a.nota_preco+a.nota_estado+a.nota_tamanho+a.nota_conforto)::float/5<=2 THEN 1 ELSE 0 END)::float/NULLIF(COUNT(a.id),0) AS rejeicao
-      FROM visita v JOIN avaliacao a ON a.visita_id=v.id WHERE v.imobiliaria_id=$1 GROUP BY v.imovel_id
+      SELECT ai.imovel_id,
+        COUNT(ai.id)::float AS n,
+        AVG((ai.nota_localizacao*2.0+ai.nota_preco*2.5+ai.nota_estado*1.5+ai.nota_tamanho*1.5+ai.nota_conforto*2.5)/10.0) AS r,
+        AVG(CASE ai.interesse WHEN 'SIM' THEN 1.0 WHEN 'TALVEZ' THEN 0.5 ELSE 0 END) AS interesse,
+        SUM(CASE WHEN (ai.nota_localizacao+ai.nota_preco+ai.nota_estado+ai.nota_tamanho+ai.nota_conforto)::float/5<=2 THEN 1 ELSE 0 END)::float/NULLIF(COUNT(ai.id),0) AS rejeicao
+      FROM avaliacao_imovel ai
+      JOIN imovel i ON i.id = ai.imovel_id
+      WHERE i.imobiliaria_id=$1 AND ai.moderacao='aprovada'
+      GROUP BY ai.imovel_id
     ), global AS (SELECT COALESCE(AVG(r),0) AS c FROM avals)
     SELECT i.*,
       COALESCE(av.n,0)::int AS total_avaliacoes,
