@@ -546,11 +546,7 @@ export const getDashboard = async (imobId: string) => {
     query(`
       WITH all_avals AS (
         SELECT ai.interesse,
-          COALESCE((
-            SELECT AVG(ac.nota) FROM avaliacao_comodo ac
-            JOIN comodo c ON c.id=ac.comodo_id
-            WHERE c.imovel_id=ai.imovel_id AND ac.cliente_id=ai.cliente_id
-          ), 0) AS nota_media
+          (ai.nota_localizacao + ai.nota_preco + ai.nota_estado + ai.nota_tamanho + ai.nota_conforto)::float / 5 AS nota_media
         FROM avaliacao_imovel ai JOIN imovel i ON i.id=ai.imovel_id WHERE i.imobiliaria_id=$1 AND ai.moderacao='aprovada'
       )
       SELECT
@@ -563,9 +559,21 @@ export const getDashboard = async (imobId: string) => {
     `, [imobId]),
     query(`SELECT TO_CHAR(data_visita,'YYYY-MM') AS mes,COUNT(*)::int AS total FROM visita WHERE imobiliaria_id=$1 AND data_visita>=NOW()-INTERVAL '6 months' AND NOT (status='cancelada' AND criado_em < NOW() - INTERVAL '7 days') GROUP BY mes ORDER BY mes`, [imobId]),
     query(`
-      WITH avals AS (SELECT v.imovel_id,COUNT(a.id)::float AS n,AVG((a.nota_localizacao*2.0+a.nota_preco*2.5+a.nota_estado*1.5+a.nota_tamanho*1.5+a.nota_conforto*2.5)/10.0) AS r,AVG(CASE a.interesse WHEN 'SIM' THEN 1.0 WHEN 'TALVEZ' THEN 0.5 ELSE 0 END) AS interesse FROM visita v JOIN avaliacao a ON a.visita_id=v.id WHERE v.imobiliaria_id=$1 GROUP BY v.imovel_id),global AS(SELECT COALESCE(AVG(r),0) AS c FROM avals)
-      SELECT i.id,i.titulo,i.bairro,i.cidade,COALESCE(av.n,0)::int AS total_avaliacoes,ROUND(COALESCE(0.6*((av.n/(av.n+10))*av.r+(10/(av.n+10))*g.c)+0.3*av.interesse+0.1*LN(GREATEST(av.n,1)),0)::numeric,2) AS visitrank_score,CASE WHEN COALESCE(((av.n/(av.n+10))*av.r+(10/(av.n+10))*g.c)*av.interesse,0)>4 THEN 'altamente_atrativo' WHEN COALESCE(((av.n/(av.n+10))*av.r+(10/(av.n+10))*g.c)*av.interesse,0)>=3 THEN 'competitivo' WHEN COALESCE(((av.n/(av.n+10))*av.r+(10/(av.n+10))*g.c)*av.interesse,0)>=2 THEN 'precisa_melhorar' ELSE 'baixa_atratividade' END AS classificacao
-      FROM imovel i LEFT JOIN avals av ON av.imovel_id=i.id CROSS JOIN global g WHERE i.imobiliaria_id=$1 AND i.ativo=TRUE ORDER BY visitrank_score DESC LIMIT 5
+      WITH avals AS (
+        SELECT ai.imovel_id,COUNT(ai.id)::float AS n,
+          AVG((ai.nota_localizacao*2.0+ai.nota_preco*2.5+ai.nota_estado*1.5+ai.nota_tamanho*1.5+ai.nota_conforto*2.5)/10.0) AS r,
+          AVG(CASE ai.interesse WHEN 'SIM' THEN 1.0 WHEN 'TALVEZ' THEN 0.5 ELSE 0 END) AS interesse
+        FROM avaliacao_imovel ai JOIN imovel i ON i.id=ai.imovel_id
+        WHERE i.imobiliaria_id=$1 AND ai.moderacao='aprovada' GROUP BY ai.imovel_id
+      ), global AS (SELECT COALESCE(AVG(r),0) AS c FROM avals)
+      SELECT i.id,i.titulo,i.bairro,i.cidade,COALESCE(av.n,0)::int AS total_avaliacoes,
+        ROUND(COALESCE(0.6*((av.n/(av.n+10))*av.r+(10/(av.n+10))*g.c)+0.3*av.interesse+0.1*LN(GREATEST(av.n,1)),0)::numeric,2) AS visitrank_score,
+        CASE WHEN COALESCE(((av.n/(av.n+10))*av.r+(10/(av.n+10))*g.c)*av.interesse,0)>4 THEN 'altamente_atrativo'
+             WHEN COALESCE(((av.n/(av.n+10))*av.r+(10/(av.n+10))*g.c)*av.interesse,0)>=3 THEN 'competitivo'
+             WHEN COALESCE(((av.n/(av.n+10))*av.r+(10/(av.n+10))*g.c)*av.interesse,0)>=2 THEN 'precisa_melhorar'
+             ELSE 'baixa_atratividade' END AS classificacao
+      FROM imovel i LEFT JOIN avals av ON av.imovel_id=i.id CROSS JOIN global g
+      WHERE i.imobiliaria_id=$1 AND i.ativo=TRUE ORDER BY visitrank_score DESC LIMIT 5
     `, [imobId]),
   ]);
   return { ...t.rows[0], ...m.rows[0], visitas_por_mes: mes.rows, ranking_top5: top.rows };
