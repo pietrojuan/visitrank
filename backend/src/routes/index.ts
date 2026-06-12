@@ -94,6 +94,13 @@ r.post('/cliente/agendar', autenticarCliente, wrap(async (req, res) => {
 }));
 
 // ── IMÓVEIS EXTERNOS (CLIENTE) ────────────────────────────
+r.get('/cliente/visitas', autenticarCliente, wrap(async (req, res) => {
+  res.json(await clienteAuth.minhasVisitas(cliId(req)));
+}));
+r.patch('/cliente/visitas/:id/cancelar', autenticarCliente, wrap(async (req, res) => {
+  res.json(await clienteAuth.cancelarVisitaCliente(cliId(req), req.params.id));
+}));
+
 r.get('/cliente/externos', autenticarCliente, wrap(async (req, res) => {
   res.json(await clienteAuth.listarImoveisExternos(cliId(req)));
 }));

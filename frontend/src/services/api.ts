@@ -55,6 +55,9 @@ export const clienteAuthApi = {
   datasDisponiveis: (imovel_id: string, mes: string) => cliGet(`/cliente/datas-disponiveis?imovel_id=${imovel_id}&mes=${mes}`),
   slots: (data: string, imovel_id: string) => cliGet(`/cliente/slots?data=${data}&imovel_id=${imovel_id}`),
   agendar: (d: object) => cliPost('/cliente/agendar', d),
+  // Visitas do cliente
+  minhasVisitas: () => cliGet('/cliente/visitas'),
+  cancelarVisita: (id: string) => axios.patch(`${BASE}/cliente/visitas/${id}/cancelar`, {}, { headers: cliHeader() }),
   // Imóveis externos
   listarExternos: () => cliGet('/cliente/externos'),
   criarExterno: (d: object) => cliPost('/cliente/externos', d),

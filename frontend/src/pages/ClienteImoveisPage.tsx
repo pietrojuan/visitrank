@@ -655,7 +655,7 @@ function AbaImoveis({ imoveis, loading, onAvaliar, onAtualizar }: { imoveis: Imo
   return (
     <>
       {verImovel && <ModalVerImovel imovel={verImovel} onClose={() => setVerImovel(null)} onAgendar={() => setAgendando(verImovel)} onAvaliar={() => onAvaliar(verImovel.id)} />}
-      {agendando && <ModalAgendarVisita imovel={agendando} onClose={() => setAgendando(null)} onAgendado={onAtualizar} />}
+      {agendando && <ModalAgendarVisita imovel={agendando} onClose={() => setAgendando(null)} onAgendado={() => { onAtualizar(); setAgendando(null); }} />}
 
       <div className="space-y-3">
         {imoveis.map(im => {
@@ -804,6 +804,93 @@ function ModalAvaliacaoCompleta({ av, onClose }: { av: MinhaAvaliacao; onClose: 
 // ─────────────────────────────────────────────────────────────
 // ABA AVALIAÇÕES
 // ─────────────────────────────────────────────────────────────
+function AbaVisitas() {
+  type Visita = {
+    id: string; status: string; data_visita: string;
+    titulo: string; bairro: string; cidade: string;
+    corretor_nome: string; corretor_telefone: string | null;
+    foto: string | null;
+  };
+  const [visitas, setVisitas] = useState<Visita[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const carregar = () => {
+    setLoading(true);
+    clienteAuthApi.minhasVisitas().then(r => setVisitas(r.data)).finally(() => setLoading(false));
+  };
+  useEffect(carregar, []);
+
+  const cancelar = async (id: string) => {
+    if (!confirm('Cancelar esta visita?')) return;
+    try {
+      await clienteAuthApi.cancelarVisita(id);
+      carregar();
+    } catch { alert('Não foi possível cancelar.'); }
+  };
+
+  if (loading) return <div className="flex justify-center py-20"><Spinner /></div>;
+  if (visitas.length === 0) return (
+    <div className="text-center py-20">
+      <div className="text-6xl mb-4">📅</div>
+      <p className="text-slate-700 font-semibold text-lg">Nenhuma visita agendada</p>
+      <p className="text-slate-400 text-sm mt-1">Agende uma visita pela aba Imóveis.</p>
+    </div>
+  );
+
+  const STATUS_STYLE: Record<string, string> = {
+    agendada:  'bg-blue-100 text-blue-700',
+    realizada: 'bg-green-100 text-green-700',
+    cancelada: 'bg-red-100 text-red-600',
+  };
+  const STATUS_LABEL: Record<string, string> = {
+    agendada: 'Agendada', realizada: 'Realizada', cancelada: 'Cancelada',
+  };
+
+  return (
+    <div className="space-y-3">
+      {visitas.map(v => {
+        const dt = new Date(v.data_visita);
+        const dataBR = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
+        const hora   = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        return (
+          <div key={v.id} className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
+            <div className="flex gap-3 p-3">
+              {v.foto
+                ? <img src={v.foto} alt="" className="w-20 h-20 rounded-xl object-cover shrink-0" />
+                : <div className="w-20 h-20 rounded-xl bg-slate-100 flex items-center justify-center text-2xl shrink-0">🏠</div>
+              }
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-semibold text-slate-800 text-sm leading-snug line-clamp-2">{v.titulo}</p>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${STATUS_STYLE[v.status] || 'bg-slate-100 text-slate-600'}`}>
+                    {STATUS_LABEL[v.status] || v.status}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">{v.bairro} — {v.cidade}</p>
+                <div className="flex items-center gap-1.5 mt-2">
+                  <span className="text-brand-600 text-xs font-semibold">📅 {dataBR}</span>
+                  <span className="text-slate-400 text-xs">às {hora}</span>
+                </div>
+                {v.corretor_nome && (
+                  <p className="text-xs text-slate-400 mt-0.5">Corretor: <span className="text-slate-600">{v.corretor_nome}</span></p>
+                )}
+              </div>
+            </div>
+            {v.status === 'agendada' && (
+              <div className="border-t border-slate-100 px-3 py-2">
+                <button onClick={() => cancelar(v.id)}
+                  className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors">
+                  Cancelar visita
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function AbaAvaliacoes({ onEditar }: { onEditar: (imovelId: string) => void }) {
   const [avaliacoes, setAvaliacoes] = useState<MinhaAvaliacao[]>([]);
   const [loading, setLoading] = useState(true);
@@ -878,8 +965,8 @@ export default function ClienteImoveisPage() {
   const [showPerfil, setShowPerfil] = useState(false);
 
   const abaParam = new URLSearchParams(location.search).get('aba');
-  const abaInicial = abaParam === 'avaliacoes' ? 'avaliacoes' : abaParam === 'externos' ? 'externos' : 'imoveis';
-  const [aba, setAba] = useState<'imoveis' | 'avaliacoes' | 'externos'>(abaInicial);
+  const abaInicial = abaParam === 'avaliacoes' ? 'avaliacoes' : abaParam === 'externos' ? 'externos' : abaParam === 'visitas' ? 'visitas' : 'imoveis';
+  const [aba, setAba] = useState<'imoveis' | 'visitas' | 'avaliacoes' | 'externos'>(abaInicial);
 
   const cliente = JSON.parse(localStorage.getItem('vr_cliente') || '{}');
   const iniciais = (cliente.nome || '?').split(' ').map((p: string) => p[0]).slice(0, 2).join('').toUpperCase();
@@ -947,6 +1034,7 @@ export default function ClienteImoveisPage() {
           <div className="flex border-b border-slate-100">
             {([
               ['imoveis',    '🏠', 'Imóveis'   ],
+              ['visitas',    '📅', 'Visitas'   ],
               ['avaliacoes', '⭐', 'Avaliações' ],
               ['externos',   '🏘️', 'Outros'    ],
             ] as const).map(([key, icon, label]) => (
@@ -963,6 +1051,7 @@ export default function ClienteImoveisPage() {
             {aba === 'imoveis' && (
               <AbaImoveis imoveis={imoveis} loading={loading} onAvaliar={id => navigate(`/cliente/imoveis/${id}`)} onAtualizar={carregarImoveis} />
             )}
+            {aba === 'visitas' && <AbaVisitas />}
             {aba === 'avaliacoes' && (
               <AbaAvaliacoes onEditar={id => navigate(`/cliente/imoveis/${id}`)} />
             )}

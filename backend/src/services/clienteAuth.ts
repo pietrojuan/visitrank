@@ -318,6 +318,35 @@ export const agendarVisitaCliente = async (
   return r.rows[0];
 };
 
+export const minhasVisitas = async (clienteId: string) => {
+  const r = await query(
+    `SELECT v.id, v.status, v.data_visita, v.criado_em,
+            i.titulo, i.bairro, i.cidade, i.preco,
+            u.nome AS corretor_nome, u.telefone AS corretor_telefone,
+            (SELECT dados FROM foto_imovel WHERE imovel_id=i.id ORDER BY ordem LIMIT 1) AS foto
+     FROM visita v
+     JOIN imovel i ON i.id = v.imovel_id
+     LEFT JOIN usuario u ON u.id = v.corretor_id
+     WHERE v.cliente_id = $1
+     ORDER BY v.data_visita DESC`,
+    [clienteId]
+  );
+  return r.rows.map(row => ({
+    ...row,
+    foto: row.foto ? `data:image/jpeg;base64,${row.foto.toString('base64')}` : null,
+  }));
+};
+
+export const cancelarVisitaCliente = async (clienteId: string, visitaId: string) => {
+  const r = await query(
+    `UPDATE visita SET status='cancelada'
+     WHERE id=$1 AND cliente_id=$2 AND status='agendada' RETURNING id`,
+    [visitaId, clienteId]
+  );
+  if (!r.rows[0]) throw new Error('Visita não encontrada ou não pode ser cancelada.');
+  return { ok: true };
+};
+
 // Imóveis externos (cadastrados pelo próprio cliente)
 export const listarImoveisExternos = async (clienteId: string) => {
   const r = await query(
