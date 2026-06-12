@@ -974,13 +974,18 @@ export default function ClienteImoveisPage() {
   // Stats rápidas
   const totalImoveis = imoveis.length;
   const avaliados = imoveis.filter(i => i.ja_avaliado).length;
-  const agendados = imoveis.filter(i => i.ja_liberado && !i.ja_avaliado).length;
+  const [agendados, setAgendados] = useState(0);
 
   const carregarImoveis = () => {
     setLoading(true);
     clienteAuthApi.todosImoveis().then(r => setImoveis(r.data)).finally(() => setLoading(false));
   };
-  useEffect(carregarImoveis, []);
+  const carregarAgendados = () => {
+    clienteAuthApi.minhasVisitas().then(r => {
+      setAgendados(r.data.filter((v: { status: string }) => v.status === 'agendada').length);
+    }).catch(() => {});
+  };
+  useEffect(() => { carregarImoveis(); carregarAgendados(); }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('vr_cli_token');
